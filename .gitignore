@@ -1,5 +1,7 @@
 # scout specific
+log
 scout
+.vscode
 config.h
 -valgrindlog
 -codesamples

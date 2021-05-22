@@ -32,13 +32,3 @@ int utilsNameCMP(char *name1, char *name2)
 	
 	return chr1 - chr2;
 }
-
-unsigned int utilsGenerateHash(char *path)
-{
-	unsigned int val;
-
-	for (val = 0; *path != '\0'; path++)
-		val = *path + 31 * val;
-
-	return val % MAXBUF;
-}

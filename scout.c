@@ -40,7 +40,11 @@ enum
 };
 
 /* structs */
-typedef struct entr
+typedef struct entr ENTR;
+typedef struct node NODE;
+typedef struct sdir SDIR;
+
+struct entr
 {
 	int type;
 	int isatu; /* is accessible to user */
@@ -51,23 +55,28 @@ typedef struct entr
 	char *users;
 	char *dates;
 	char *lpath;
-} ENTR;
+};
 
-typedef struct node
+struct node
 {
 	struct node *prev;
 	struct node *next;
-	ENTR *file;
-} NODE;
 
-typedef struct sdir
+	SDIR *buf;
+	ENTR *file;
+};
+
+struct sdir
 {
 	NODE *sel;
 	NODE *list;
+
 	char *path;
 	int selline;
+	int entrycnt;
+	NODE **entries;
 	char *selected;
-} SDIR;
+};
 
 typedef struct scout
 {
@@ -80,9 +89,7 @@ typedef struct scout
 } SCOUT;
 
 /* function declarations */
-static int scoutAddFile(int, char *);
-static int scoutAddFileToList(int, ENTR *);
-static int scoutAllocDir(int);
+static int scoutAddFile(ENTR **, char *);
 static int scoutBuildWindows(void);
 static int scoutDestroyWindows(void);
 static int scoutCommandLine(char *);
@@ -101,6 +108,7 @@ static int scoutPrintListPrep(int);
 static int scoutPrintInfo(void);
 static int scoutReadDir(int);
 static int scoutQuit(void);
+static int scoutQsortCMP(const void *, const void *);
 static int scoutSearch(char *);
 static int scoutSetup(char *);
 static void scoutTermResizeHandler(int);
@@ -115,108 +123,23 @@ static SCOUT *scout[3];
 /* configuration */
 #include "config.h"
 
-int scoutAddFile(int dir, char *path)
+int scoutAddFile(ENTR **entry, char *path)
 {
-	ENTR *entry;
+	ENTR *temp;
 	struct stat fstat;
 
 	if (lstat(path, &fstat) != OK)
 		return ERR;
 
-	if ((entry = (ENTR *) malloc(sizeof(ENTR))) == NULL)
+	if ((temp = (ENTR *) calloc(1, sizeof(ENTR))) == NULL)
 		return ERR;
 
-	if ((entry->name = malloc(sizeof(char) * (strlen(path) + 1))) == NULL)
+	if ((temp->name = malloc(sizeof(char) * (strlen(path) + 1))) == NULL)
 		return ERR;
 
-	strcpy(entry->name, path);
-	scoutGetFileType(entry);
-	entry->size  = NULL;
-	entry->perms = NULL;
-	entry->users = NULL;
-	entry->dates = NULL;
-	entry->lpath = NULL;
-	entry->isatu = OK;
-
-	if ((scoutAddFileToList(dir, entry)) != OK)
-	{
-		free(entry->name);
-		free(entry);
-		return ERR;
-	}
-	
-	return OK;
-}
-
-int scoutAddFileToList(int dir, ENTR *entry)
-{
-	NODE *curr;
-	NODE *temp;
-	NODE *prev;
-
-	prev = NULL;
-	temp = scout[dir]->dir->list;
-	while (temp != NULL)
-	{
-		if (entry->type == CP_DIRECTORY && temp->file->type != CP_DIRECTORY)
-			break;
-		else if ((entry->type != CP_DIRECTORY && temp->file->type == CP_DIRECTORY)
-		        || utilsNameCMP(entry->name, temp->file->name) > 0)
-		{
-			prev = temp;
-			temp = temp->next;
-		}
-		else
-			break;
-	}
-
-	if ((curr = (NODE *) malloc(sizeof(NODE))) == NULL)
-		return ERR;
-
-	curr->file = entry;
-
-	if (temp != NULL)
-	{
-		if (temp->prev != NULL)
-			temp->prev->next = curr;
-		
-		curr->next = temp;
-		curr->prev = temp->prev;
-		temp->prev = curr;
-	}
-	else
-	{
-		if (prev != NULL)
-			prev->next = curr;
-
-		curr->next = NULL;
-		curr->prev = prev;
-	}
-
-	if (prev == NULL)
-		scout[dir]->dir->list = curr;
-
-	if (scout[dir]->dir->selected != NULL)
-	{
-		if (strcmp(scout[dir]->dir->selected, curr->file->name) == OK)
-			scout[dir]->dir->sel = curr;
-	}
-	else
-		scout[dir]->dir->sel = scout[dir]->dir->list;
-	
-	return OK;
-}
-
-int scoutAllocDir(int dir)
-{
-	if ((scout[dir]->dir = (SDIR *) malloc(sizeof(SDIR))) == NULL)
-		return ERR;
-
-	scout[dir]->dir->sel = NULL;
-	scout[dir]->dir->list = NULL;
-	scout[dir]->dir->path = NULL;
-	scout[dir]->dir->selected = NULL;
-	scout[dir]->dir->selline = 0;
+	strcpy(temp->name, path);
+	scoutGetFileType(temp);
+	*entry = temp;
 
 	return OK;
 }
@@ -757,7 +680,7 @@ int scoutLoadDir(int dir, int mode)
 	{
 		case NEXT:
 			if (mode == LOAD)
-				if (scoutAllocDir(NEXT) != OK)
+				if ((scout[NEXT]->dir = (SDIR *) calloc(1, sizeof(SDIR))) == NULL)
 					return ERR;
 
 			if (scout[CURR]->dir->sel == NULL || scout[CURR]->dir->sel->file->type != CP_DIRECTORY)
@@ -796,7 +719,7 @@ int scoutLoadDir(int dir, int mode)
 		
 		case PREV:
 			if (mode == LOAD)
-				if (scoutAllocDir(PREV) != OK)
+				if ((scout[PREV]->dir = (SDIR *) calloc(1, sizeof(SDIR))) == NULL)
 					return ERR;
 			
 			if (scout[CURR]->dir->path[1] == '\0')
@@ -1183,6 +1106,7 @@ int scoutPrintInfo(void)
 int scoutReadDir(int dir)
 {
 	DIR *pdir;
+	ENTR *entry;
 	char *seldir;
 	struct dirent *d;
 
@@ -1199,18 +1123,34 @@ int scoutReadDir(int dir)
 
 		strcpy(scout[dir]->dir->selected, seldir);
 	}
-	int temp = 0;
+	
 	while ((d = readdir(pdir)) != NULL)
 	{
 		if (strcmp(d->d_name, ".") == OK 
 		|| strcmp(d->d_name, "..") == OK)
 			continue;
 
-		if (scoutAddFile(dir, d->d_name) != OK)
+		if (scoutAddFile(&entry, d->d_name) != OK)
 			continue; //error
 
-		temp++;
+		if ((scout[dir]->dir->entries = realloc(scout[dir]->dir->entries, sizeof(NODE *) * (scout[dir]->dir->entrycnt + 1))) == NULL)
+			return ERR;
+
+		if ((scout[dir]->dir->entries[scout[dir]->dir->entrycnt] = malloc(sizeof(NODE))) == NULL)
+			return ERR;
+		
+		scout[dir]->dir->entries[scout[dir]->dir->entrycnt]->file = entry;
+		scout[dir]->dir->entries[scout[dir]->dir->entrycnt]->buf  = NULL;
+		scout[dir]->dir->entrycnt++;
 	}
+
+	if (scout[dir]->dir->entries != NULL)
+		qsort(scout[dir]->dir->entries, scout[dir]->dir->entrycnt, sizeof(NODE *), scoutQsortCMP);
+
+/*	FILE *fp = fopen("log", "w+");
+	for (int i = 0; i < scout[dir]->dir->entrycnt; i++)
+		fprintf(fp, "%s\n", scout[dir]->dir->entries[i]->file->name);
+	fclose(fp); */
 
 	if (dir != CURR)
 		chdir(scout[CURR]->dir->path);
@@ -1313,6 +1253,23 @@ int scoutQuit(void)
 	return OK;
 }
 
+int scoutQsortCMP(const void *A, const void *B)
+{
+	ENTR *fileA = (*(NODE **) A)->file;
+	ENTR *fileB = (*(NODE **) B)->file;
+
+	if (fileA->type == CP_DIRECTORY && fileB->type == CP_DIRECTORY)
+		return utilsNameCMP(fileA->name, fileB->name);
+	
+	if (fileA->type != CP_DIRECTORY && fileB->type != CP_DIRECTORY)
+		return utilsNameCMP(fileA->name, fileB->name);
+
+	if (fileA->type == CP_DIRECTORY && fileB->type != CP_DIRECTORY)
+		return -1;
+
+	return 1;
+}
+
 int scoutSetup(char *path)
 {
 	int i;
@@ -1320,19 +1277,14 @@ int scoutSetup(char *path)
 	struct passwd *pw;
 	char truepath[PATH_MAX];
 
-	for (i = 0; i < 3; i++)
-	{
-		if ((scout[i] = (SCOUT *) malloc(sizeof(SCOUT))) == NULL)
-			return ERR;
-
-		scout[i]->win = NULL;
-		scout[i]->dir = NULL;
-	}
-
 	if (realpath(path, truepath) == NULL)
 		return ERR;
 
-	if (scoutAllocDir(CURR) != OK)
+	for (i = 0; i < 3; i++)
+		if ((scout[i] = (SCOUT *) calloc(1, sizeof(SCOUT))) == NULL)
+			return ERR;
+
+	if ((scout[CURR]->dir = (SDIR *) calloc(1, sizeof(SDIR))) == NULL)
 		return ERR;
 	
 	if ((scout[CURR]->dir->path = malloc(sizeof(char) * (strlen(truepath) + 1))) == NULL)
