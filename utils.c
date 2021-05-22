@@ -1,0 +1,44 @@
+#include <stdlib.h>
+#include <ctype.h>
+#include "utils.h"
+
+int utilsNameCMP(char *name1, char *name2)
+{
+	int num1, num2;
+	char chr1, chr2;
+	
+	if (isdigit(*name1) && isdigit(*name2))
+	{
+		num1 = atof(name1);
+		num2 = atof(name2);
+
+		if (num1 < num2)
+			return -1;
+		else if (num1 > num2)
+			return 1;
+		else
+			return 0;
+	}
+
+	do
+	{
+		chr1 = tolower(*name1++);
+		chr2 = tolower(*name2++);
+	
+		if (chr1 == chr2 && chr1 == '\0')
+			return 0;
+
+	} while (chr1 == chr2);
+	
+	return chr1 - chr2;
+}
+
+unsigned int utilsGenerateHash(char *path)
+{
+	unsigned int val;
+
+	for (val = 0; *path != '\0'; path++)
+		val = *path + 31 * val;
+
+	return val % MAXBUF;
+}
