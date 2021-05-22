@@ -1140,17 +1140,12 @@ int scoutReadDir(int dir)
 			return ERR;
 		
 		scout[dir]->dir->entries[scout[dir]->dir->entrycnt]->file = entry;
-		scout[dir]->dir->entries[scout[dir]->dir->entrycnt]->buf  = NULL;
+		scout[dir]->dir->entries[scout[dir]->dir->entrycnt]->buf = NULL;
 		scout[dir]->dir->entrycnt++;
 	}
 
 	if (scout[dir]->dir->entries != NULL)
 		qsort(scout[dir]->dir->entries, scout[dir]->dir->entrycnt, sizeof(NODE *), scoutQsortCMP);
-
-/*	FILE *fp = fopen("log", "w+");
-	for (int i = 0; i < scout[dir]->dir->entrycnt; i++)
-		fprintf(fp, "%s\n", scout[dir]->dir->entries[i]->file->name);
-	fclose(fp); */
 
 	if (dir != CURR)
 		chdir(scout[CURR]->dir->path);
