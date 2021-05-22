@@ -1,3 +1,9 @@
+# scout specific
+scout
+config.h
+-valgrindlog
+-codesamples
+
 # Prerequisites
 *.d
 
