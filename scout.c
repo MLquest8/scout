@@ -398,7 +398,7 @@ int scoutGetFileInfo(ENTR *entry)
 				return ERR;
 		}
 		else
-			strcpy(truepath, errorSymBroken);
+			truepath[0] = '\0'; /* marks broken symlinks */
 	}
 
 	if (i == 0)
@@ -461,10 +461,11 @@ int scoutGetFileInfo(ENTR *entry)
 		return ERR;
 	strcpy(entry->dates, ctimebuf);
 
-	if (entry->issym)
+	if (entry->issym && truepath[0] != '\0')
 	{
 		if ((entry->lpath = malloc(sizeof(char) * (strlen(truepath) + 1))) == NULL)
 			return ERR;
+
 		strcpy(entry->lpath, truepath);
 	}
 	
@@ -1112,7 +1113,6 @@ int scoutPrintInfo(void)
 	if (selentry != NULL 
 	&& scoutGetFileInfo(selentry->file) != ERR)
 	{
-		
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARPERM));
 		wprintw(stdscr, selentry->file->perms);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARPERM));
@@ -1130,17 +1130,17 @@ int scoutPrintInfo(void)
 			wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
 			wprintw(stdscr, "-> ", selentry->file->lpath);
 			wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-			if (strcmp(selentry->file->lpath, errorSymBroken) == OK)
-			{
-				wattron(stdscr, COLOR_PAIR(CP_ERROR));
-				wprintw(stdscr, errorSymBroken);
-				wattroff(stdscr, COLOR_PAIR(CP_ERROR));
-			}
-			else
+			if (selentry->file->lpath != NULL)
 			{
 				wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
 				wprintw(stdscr, selentry->file->lpath);
 				wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
+			}
+			else
+			{
+				wattron(stdscr, COLOR_PAIR(CP_ERROR));
+				wprintw(stdscr, errorSymBroken);
+				wattroff(stdscr, COLOR_PAIR(CP_ERROR));
 			}
 			
 		}
