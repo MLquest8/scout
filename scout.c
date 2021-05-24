@@ -97,13 +97,14 @@ static int scoutDestroyWindows(void);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
 static int scoutFreeDir(SDIR *);
+static int scoutFreeDirSize(int);
 static int scoutFreeInfo(ENTR *);
 static int scoutGetFileInfo(ENTR *);
 static int scoutGetFileSize(ENTR *);
 static int scoutGetFileType(ENTR *);
 static int scoutInitializeCurses(void);
 static int scoutLoadDir(int, int);
-static int scoutFreeDirSize(int);
+static int scoutMatchSelEntry(SDIR *);
 static int scoutMove(int);
 static int scoutPrintEntry(WINDOW *, ENTR *, int, int, int);
 static int scoutPrintList(int);
@@ -111,7 +112,6 @@ static int scoutPrintListPrep(int);
 static int scoutPrintInfo(void);
 static int scoutReadDir(int);
 static int scoutQuit(void);
-static int scoutSearch(char *);
 static int scoutSetup(char *);
 static void scoutTermResizeHandler(int);
 
@@ -694,9 +694,8 @@ int scoutInitializeCurses(void)
 
 int scoutLoadDir(int dir, int mode)
 {
+	int i = 0;
 	char *temp;
-	int i, j, k, l, n = 0;
-	i = j = k = l = 0;
 	
 	switch (dir)
 	{
@@ -766,31 +765,11 @@ int scoutLoadDir(int dir, int mode)
 				scoutReadDir(PREV);
 
 				temp = strrchr(scout[CURR]->dir->path, '/');
-				if ((scout[dir]->dir->selected = malloc(sizeof(char) * strlen(temp++))) == NULL)
+				if ((scout[PREV]->dir->selected = malloc(sizeof(char) * strlen(temp++))) == NULL)
 					return ERR;
-				strcpy(scout[dir]->dir->selected, temp);
-				
-				// NEED to wrap and send to qsort CMP
-				i = 0;
-				j = scout[PREV]->dir->entrycount;
-				l = (j - i) / 2;
-				temp = scout[PREV]->dir->entries[l]->file->name;
-				while ((k = utilsNameCMP(scout[dir]->dir->selected, temp)) != 0)
-				{
-					n++;
-					if (k < 0)
-					{
-						j = l;
-						l = (j - i) / 2;
-					}
-					else
-					{
-						i = l;
-						l = l + (j - i) / 2;
-					}
-					temp = scout[PREV]->dir->entries[l]->file->name;
-				}
-				scout[PREV]->dir->selentry = l;
+
+				strcpy(scout[PREV]->dir->selected, temp);
+				scoutMatchSelEntry(scout[PREV]->dir);
 			}
 
 			scoutPrintList(PREV);
@@ -811,6 +790,40 @@ int scoutLoadDir(int dir, int mode)
 	}
 
 	return ERR;
+}
+
+int scoutMatchSelEntry(SDIR *dir)
+{
+	int i, j, k, l;
+	NODE *dummyptr;
+	NODE dummynode;
+	ENTR dummyfile;
+
+	dummyptr = &dummynode;
+	dummynode.file = &dummyfile;
+	dummyfile.type = CP_DIRECTORY;
+	dummyfile.name = dir->selected;
+
+	i = 0;
+	j = dir->entrycount;
+	l = (j - i) / 2;
+	
+	while ((k = scoutCompareEntries(&dummyptr, &dir->entries[l])) != 0)
+	{
+		if (k < 0)
+		{
+			j = l;
+			l = (j - i) / 2;
+		}
+		else
+		{
+			i = l;
+			l = l + (j - i) / 2;
+		}
+	}
+
+	dir->selentry = l;
+	return OK;
 }
 
 int scoutMove(int dir)
@@ -1305,27 +1318,6 @@ int scoutSetup(char *path)
 	scoutLoadDir(NEXT, LOAD);
 	scoutPrintInfo();
 
-	return OK;
-}
-
-int scoutSearch(char *needle)
-{
-	//HOLY TODO!!!
-	NODE *entry;
-
-	if ((entry = scout[CURR]->dir->sel) == NULL)
-		return ERR;
-
-	while (entry != NULL)
-	{
-		if (strcmp(entry->file->name, needle) == OK)
-		{
-			scout[CURR]->dir->sel = entry;
-			break;
-		}
-
-		entry = entry->next;
-	}
 	return OK;
 }
 
