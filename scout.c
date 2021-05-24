@@ -99,6 +99,7 @@ static int scoutCommandLine(char *);
 static int scoutFreeDir(SDIR *);
 static int scoutFreeDirSize(int);
 static int scoutFreeInfo(ENTR *);
+static int scoutFreeSize(void);
 static int scoutGetFileInfo(ENTR *);
 static int scoutGetFileSize(ENTR *);
 static int scoutGetFileType(ENTR *);
@@ -370,6 +371,19 @@ int scoutFreeInfo(ENTR *file)
 	file->dates = NULL;
 	free(file->lpath);
 	file->lpath = NULL;
+
+	return OK;
+}
+
+int scoutFreeSize(void)
+{
+	int i, j;
+
+	for (i = 0, j = scout[CURR]->dir->firstentry; i < scout[CURR]->lines && j < scout[CURR]->dir->entrycount; i++, j++)
+	{
+		free(scout[CURR]->dir->entries[j]->file->size);
+		scout[CURR]->dir->entries[j]->file->size = NULL;
+	}
 
 	return OK;
 }
@@ -695,7 +709,7 @@ int scoutInitializeCurses(void)
 
 int scoutLoadDir(int dir, int mode)
 {
-	int i = 0;
+	int j, i = 0;
 	char *temp;
 	
 	switch (dir)
@@ -758,9 +772,8 @@ int scoutLoadDir(int dir, int mode)
 				if ((scout[PREV]->dir->path = malloc(sizeof(char) * (i + 2))) == NULL)
 					return ERR;
 
-				strncpy(scout[PREV]->dir->path, scout[CURR]->dir->path, i + 1);
-
 				/* Ternary operator accounts for "/" directory */
+				strncpy(scout[PREV]->dir->path, scout[CURR]->dir->path, i + 1);
 				scout[PREV]->dir->path[i ? i : 1] = '\0';
 
 				scoutReadDir(PREV);
@@ -780,7 +793,8 @@ int scoutLoadDir(int dir, int mode)
 			if (mode == LOAD)
 			{
 				scoutReadDir(CURR);
-				scoutFreeDirSize(CURR);
+				for (i = 0, j = scout[CURR]->dir->firstentry; i < scout[CURR]->lines && j < scout[CURR]->dir->entrycount; i++, j++)
+					scoutGetFileSize(scout[CURR]->dir->entries[j]->file);
 			}
 
 			scoutPrintList(CURR);
@@ -906,10 +920,10 @@ int scoutMove(int dir)
 
 			bufferDIR = scout[NEXT]->dir; // TODO Improve buffering system
 
+			scoutFreeSize();
 			scout[NEXT]->dir = scout[CURR]->dir;
 			scout[CURR]->dir = scout[PREV]->dir;
 			chdir(scout[CURR]->dir->path);
-			scoutFreeDirSize(NEXT);
 			scoutPrintList(CURR);
 			scoutPrintList(NEXT);
 			scoutLoadDir(PREV, LOAD);
@@ -927,10 +941,10 @@ int scoutMove(int dir)
 
 			bufferDIR = scout[PREV]->dir; // TODO Improve buffering system
 
+			scoutFreeSize();
 			scout[PREV]->dir = scout[CURR]->dir;
 			scout[CURR]->dir = scout[NEXT]->dir;
 			chdir(scout[CURR]->dir->path);
-			scoutFreeDirSize(PREV);
 			scoutPrintList(PREV);
 			scoutPrintList(CURR);
 			scoutLoadDir(NEXT, LOAD);
@@ -1035,7 +1049,7 @@ int scoutPrintList(int dir)
 int scoutPrintListPrep(int dir)
 {
 	int temp1, temp2;
-	//might be a good place to hande size retrieval
+
 	if (scout[dir]->dir->firstentry != 0)
 		return ERR;
 
