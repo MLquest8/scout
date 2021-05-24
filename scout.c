@@ -1067,6 +1067,8 @@ int scoutPrintListPrep(int dir)
 
 int scoutPrintInfo(void)
 {
+	NODE *selentry;
+
 	/* Cleanup */
 	wmove(stdscr, 0, 0);
 	wclrtoeol(stdscr);
@@ -1078,6 +1080,11 @@ int scoutPrintInfo(void)
 		wrefresh(stdscr);
 		return OK;
 	}
+	
+	if (scout[CURR]->dir->entries != NULL)
+		selentry = scout[CURR]->dir->entries[scout[CURR]->dir->selentry];
+	else
+		selentry = NULL;
 
 	/* Top bar stuff */
 	wmove(stdscr, 0, 0);
@@ -1091,10 +1098,10 @@ int scoutPrintInfo(void)
 	if (scout[CURR]->dir->path[1] != '\0')
 		waddch(stdscr, '/');
 	wattroff(stdscr, COLOR_PAIR(CP_TOPBARPATH));
-	if (scout[CURR]->dir->sel != NULL)
+	if (selentry != NULL)
 	{
 		wattron(stdscr, COLOR_PAIR(CP_TOPBARFILE));
-		printw(scout[CURR]->dir->sel->file->name);
+		printw(selentry->file->name);
 		wattroff(stdscr, COLOR_PAIR(CP_TOPBARFILE));
 	}
 	waddch(stdscr, '\n');
@@ -1102,28 +1109,28 @@ int scoutPrintInfo(void)
 
 	/* Bottom bar stuff */
 	wmove(stdscr, LINES - 1, 0);
-	if (scout[CURR]->dir->sel != NULL 
-	&& scoutGetFileInfo(scout[CURR]->dir->sel->file) != ERR)
+	if (selentry != NULL 
+	&& scoutGetFileInfo(selentry->file) != ERR)
 	{
 		
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARPERM));
-		wprintw(stdscr, scout[CURR]->dir->sel->file->perms);
+		wprintw(stdscr, selentry->file->perms);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARPERM));
 		waddch(stdscr, ' ');
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARUSER));
-		wprintw(stdscr, scout[CURR]->dir->sel->file->users);
+		wprintw(stdscr, selentry->file->users);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARUSER));
 		waddch(stdscr, ' ');
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARDATE));
-		wprintw(stdscr, scout[CURR]->dir->sel->file->dates);
+		wprintw(stdscr, selentry->file->dates);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARDATE));
 		waddch(stdscr, ' ');
-		if (scout[CURR]->dir->sel->file->issym)
+		if (selentry->file->issym)
 		{
 			wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-			wprintw(stdscr, "-> ", scout[CURR]->dir->sel->file->lpath);
+			wprintw(stdscr, "-> ", selentry->file->lpath);
 			wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-			if (strcmp(scout[CURR]->dir->sel->file->lpath, errorSymBroken) == OK)
+			if (strcmp(selentry->file->lpath, errorSymBroken) == OK)
 			{
 				wattron(stdscr, COLOR_PAIR(CP_ERROR));
 				wprintw(stdscr, errorSymBroken);
@@ -1132,13 +1139,13 @@ int scoutPrintInfo(void)
 			else
 			{
 				wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-				wprintw(stdscr, scout[CURR]->dir->sel->file->lpath);
+				wprintw(stdscr, selentry->file->lpath);
 				wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
 			}
 			
 		}
 		waddch(stdscr, '\n');
-		scoutFreeInfo(scout[CURR]->dir->sel->file);
+		scoutFreeInfo(selentry->file);
 	}
 
 	wrefresh(stdscr);
