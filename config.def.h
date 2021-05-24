@@ -1,5 +1,5 @@
-static const int minRows = 10;
 static const int minCols = 30;
+static const int minLines = 10;
 
 static const char *extVideo[]   = {"mp4", "avi", "mov"};
 static const char *extAudio[]   = {"mp3", "wav", "ogg"};
