@@ -79,7 +79,7 @@ static int scoutBuildWindows(void);
 static int scoutDestroyWindows(void);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
-static int scoutFreeDir(SDIR *);
+static int scoutFreeDir(SDIR **);
 static int scoutFreeInfo(ENTR *);
 static int scoutFreeSize(void);
 static int scoutGetFileInfo(ENTR *);
@@ -297,12 +297,13 @@ int scoutCompareEntries(const void *entryA, const void *entryB)
 	return 1;
 }
 
-int scoutFreeDir(SDIR *dir)
+int scoutFreeDir(SDIR **pdir)
 {
 	int i = 0;
+	SDIR *dir;
 	ENTR *file;
 
-	if (dir == NULL)
+	if ((dir = *pdir) == NULL)
 		return ERR;
 
 	free(dir->path);
@@ -311,7 +312,7 @@ int scoutFreeDir(SDIR *dir)
 	{
 		while (i < dir->entrycount)
 		{
-			scoutFreeDir(dir->entries[i]->buf);
+			scoutFreeDir(&dir->entries[i]->buf);
 			file = dir->entries[i]->file;
 			scoutFreeInfo(file);
 			free(file->size);
@@ -323,8 +324,7 @@ int scoutFreeDir(SDIR *dir)
 	}
 	free(dir);
 
-	bufferDIR = NULL;
-
+	*pdir = NULL;
 	return OK;
 }
 
@@ -962,7 +962,7 @@ int scoutMove(int dir)
 	}
 
 	scoutPrintInfo();
-	scoutFreeDir(bufferDIR); // TODO Improve buffering system
+	scoutFreeDir(&bufferDIR); // TODO Improve buffering system
 
 	return OK;
 }
@@ -1292,9 +1292,9 @@ int scoutRun(void)
 
 int scoutQuit(void)
 {
-	scoutFreeDir(scout->dir[PREV]);
-	scoutFreeDir(scout->dir[CURR]);
-	scoutFreeDir(scout->dir[NEXT]);
+	scoutFreeDir(&scout->dir[PREV]);
+	scoutFreeDir(&scout->dir[CURR]);
+	scoutFreeDir(&scout->dir[NEXT]);
 	scoutDestroyWindows();
 	free(scout->username);
 	free(scout);
