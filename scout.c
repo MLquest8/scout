@@ -694,7 +694,10 @@ int scoutInitializeCurses(void)
 
 int scoutLoadDir(int dir, int mode)
 {
-	int i = 0;
+	char *temp;
+	int i, j, k, l, n = 0;
+	i = j = k = l = 0;
+	
 	switch (dir)
 	{
 		case NEXT:
@@ -759,7 +762,35 @@ int scoutLoadDir(int dir, int mode)
 
 				/* Ternary operator accounts for "/" directory */
 				scout[PREV]->dir->path[i ? i : 1] = '\0';
+
 				scoutReadDir(PREV);
+
+				temp = strrchr(scout[CURR]->dir->path, '/');
+				if ((scout[dir]->dir->selected = malloc(sizeof(char) * strlen(temp++))) == NULL)
+					return ERR;
+				strcpy(scout[dir]->dir->selected, temp);
+				
+				// NEED to wrap and send to qsort CMP
+				i = 0;
+				j = scout[PREV]->dir->entrycount;
+				l = (j - i) / 2;
+				temp = scout[PREV]->dir->entries[l]->file->name;
+				while ((k = utilsNameCMP(scout[dir]->dir->selected, temp)) != 0)
+				{
+					n++;
+					if (k < 0)
+					{
+						j = l;
+						l = (j - i) / 2;
+					}
+					else
+					{
+						i = l;
+						l = l + (j - i) / 2;
+					}
+					temp = scout[PREV]->dir->entries[l]->file->name;
+				}
+				scout[PREV]->dir->selentry = l;
 			}
 
 			scoutPrintList(PREV);
@@ -1105,22 +1136,12 @@ int scoutReadDir(int dir)
 {
 	DIR *pdir;
 	ENTR *entry;
-	char *seldir;
 	struct dirent *d;
 
 	if ((pdir = opendir(scout[dir]->dir->path)) == NULL)
 		return ERR;
 
 	chdir(scout[dir]->dir->path);
-
-	if (dir == PREV)
-	{
-		seldir = strrchr(scout[CURR]->dir->path, '/');
-		if ((scout[dir]->dir->selected = malloc(sizeof(char) * strlen(seldir++))) == NULL)
-			return ERR;
-
-		strcpy(scout[dir]->dir->selected, seldir);
-	}
 	
 	while ((d = readdir(pdir)) != NULL)
 	{
