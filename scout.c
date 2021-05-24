@@ -70,9 +70,9 @@ struct sdir
 {
 	NODE *sel;
 	NODE *list;
+	int selline;
 	
 	char *path;
-	int selline;
 	int selentry;
 	int firstentry;
 	int entrycount;
@@ -889,7 +889,7 @@ int scoutMove(int dir)
 
 			bufferDIR = scout[NEXT]->dir; // TODO Improve buffering system
 
-			if (scout[CURR]->dir->selentry % scout[CURR]->botthrsh - scout[CURR]->dir->selentry < 0)
+			if (scout[CURR]->dir->selentry - scout[CURR]->dir->firstentry >= scout[CURR]->botthrsh)
 				if (scout[CURR]->dir->entrycount - scout[CURR]->dir->selentry > scout[CURR]->topthrsh + 1)
 					scout[CURR]->dir->firstentry++;
 
@@ -1332,7 +1332,7 @@ void scoutTermResizeHandler(int null)
 
 	for (i = 0; i < 3; i++)
 		if (scout[i]->dir != NULL)
-			scout[i]->dir->selline = 0;
+			scout[i]->dir->firstentry = 0;
 
 	scoutLoadDir(PREV, RELOAD);
 	scoutLoadDir(CURR, RELOAD);
