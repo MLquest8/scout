@@ -702,14 +702,14 @@ int scoutLoadDir(int dir, int mode)
 				if ((scout[NEXT]->dir = (SDIR *) calloc(1, sizeof(SDIR))) == NULL)
 					return ERR;
 
-			if (scout[CURR]->dir->sel == NULL || scout[CURR]->dir->sel->file->type != CP_DIRECTORY)
+			if (scout[CURR]->dir->entries == NULL || scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->type != CP_DIRECTORY)
 			{
 				wclear(scout[NEXT]->win);
 				wrefresh(scout[NEXT]->win);
 				return OK;
 			}
 
-			if (scout[CURR]->dir->sel->file->isatu != OK)
+			if (scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->isatu != OK)
 			{
 				wclear(scout[NEXT]->win);
 				wattron(scout[NEXT]->win, COLOR_PAIR(CP_ERROR));
@@ -721,13 +721,13 @@ int scoutLoadDir(int dir, int mode)
 
 			if (mode == LOAD)
 			{
-				if ((scout[NEXT]->dir->path = malloc(sizeof(char) * (strlen(scout[CURR]->dir->path) + strlen(scout[CURR]->dir->sel->file->name) + 3))) == NULL)
+				if ((scout[NEXT]->dir->path = malloc(sizeof(char) * (strlen(scout[CURR]->dir->path) + strlen(scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->name) + 3))) == NULL)
 					return ERR;
 
 				if (scout[CURR]->dir->path[1] != '\0')
-					sprintf(scout[NEXT]->dir->path, "%s/%s", scout[CURR]->dir->path, scout[CURR]->dir->sel->file->name);
+					sprintf(scout[NEXT]->dir->path, "%s/%s", scout[CURR]->dir->path, scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->name);
 				else
-					sprintf(scout[NEXT]->dir->path, "/%s", scout[CURR]->dir->sel->file->name);
+					sprintf(scout[NEXT]->dir->path, "/%s", scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->name);
 
 				scoutReadDir(NEXT);
 			}
@@ -871,13 +871,13 @@ int scoutMove(int dir)
 			break;
 
 		case RIGHT:
-			if (scout[CURR]->dir->sel == NULL)
+			if (scout[CURR]->dir->entries == NULL)
 				return OK;
 
-			if (scout[CURR]->dir->sel->file->type != CP_DIRECTORY)
+			if (scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->type != CP_DIRECTORY)
 				return OK;
 
-			if (scout[CURR]->dir->sel->file->isatu != OK)
+			if (scout[CURR]->dir->entries[scout[CURR]->dir->selentry]->file->isatu != OK)
 				return OK;
 
 			bufferDIR = scout[PREV]->dir; // TODO Improve buffering system
