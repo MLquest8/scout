@@ -1,6 +1,3 @@
-static const int minCols = 30;
-static const int minLines = 10;
-
 static const char *extVideo[]   = {"mp4", "avi", "mov"};
 static const char *extAudio[]   = {"mp3", "wav", "ogg"};
 static const char *extImage[]   = {"jpg", "gif", "png"};
@@ -8,8 +5,7 @@ static const char *extArchive[] = {"zip", "rar", "7z"};
 
 static const char *errorDirEmpty  = "EMPTY";
 static const char *errorNoAccess  = "ACCESS DENIED";
-static const char *errorTinyTerm  = "NOT ENOUGH SPACE";
-static const char *errorSymBroken = "SYMLINK CANNOT BE RESOLVED";
+static const char *errorSymBroken = "UNRESOLVABLE SYMLINK";
 
 static const int nColors[][3] = {
 	{CP_DEFAULT, COLOR_DEFAULT, COLOR_DEFAULT},

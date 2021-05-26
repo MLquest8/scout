@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 #include <pwd.h>
@@ -101,17 +102,16 @@ static int scoutSetup(char *);
 static void scoutTermResHandler(int);
 
 /* variables */
+static int running = 1;
 static struct mainstruct
 {
-	int ready;
-	int running;
-	char *username;
 	int cols;
 	int lines;
 	int topthrsh;
 	int botthrsh;
 	SDIR *dir[3];
 	WINDOW *win[3];
+	char *username;
 } *scout;
 
 static SDIR *bufferDIR;
@@ -144,18 +144,6 @@ int scoutBuildWindows(void)
 {
 	int x;
 	int cols;
-	
-	if (LINES < minLines || COLS < minCols)
-	{
-		wclear(stdscr);
-		wattron(stdscr, COLOR_PAIR(CP_ERROR));
-		mvwprintw(stdscr, LINES / 2, (COLS - strlen(errorTinyTerm)) / 2, errorTinyTerm);
-		wattroff(stdscr, COLOR_PAIR(CP_ERROR));
-		wrefresh(stdscr);
-
-		scout->ready = ERR;
-		return ERR;
-	}
 
 	scout->cols = COLS;
 	scout->lines = LINES - 2;
@@ -177,7 +165,6 @@ int scoutBuildWindows(void)
 	if ((scout->win[NEXT] = newwin(LINES - 2, cols, 1, x)) == NULL)
 		return ERR;
 	
-	scout->ready = OK;
 	return OK;
 }
 
@@ -199,7 +186,7 @@ int scoutDestroyWindows(void)
 	clear();
 	endwin();
 
-	if (scout->running != OK)
+	if (!running)
 		return OK;
 	
 	refresh();
@@ -969,63 +956,106 @@ int scoutMove(int dir)
 
 int scoutPrepareString(ENTR *file, char *str, int len)
 {
-	char *extstr;
-	int i = 0, j = len - 1, k, l;
+	int res;
+	int i, j;
+	int buflen;
+	int extlen, extanc;
+	int namelen, nameanc;
+	int sizelen, sizeanc;
+	char *extstr = NULL;
 
-	str[i++] = ' ';
-	str[j--] = '\0';
-	str[j--] = ' ';
+	res = 0;
+	str[res++] = ' ';
+	str[len--] = '\0';
+	str[len--] = ' ';
 
 	if (file->size != NULL)
-	{
-		l = j - i - 1;
-		k = strlen(file->size);
-		while (k > 0)
-		{
-			str[j--] = file->size[k--];
-			if (l-- == 0)
-			{
-				str[j] = '~';
-				return OK;
-			}
-		}
-		str[j--] = ' ';
-	}
-
-	
-	k = strlen(file->name);
-	l = i + k;
-	while (j > l)
-		str[j--] = ' ';
+		sizeanc = sizelen = strlen(file->size);
+	else
+		sizeanc = sizelen = 0;
 
 	if (file->name[0] != '.' && (extstr = strrchr(file->name, '.')) != NULL)
+		extanc = extlen = strlen(extstr);
+	else
+		extanc = extlen = 0;
+	
+	nameanc = namelen = strlen(file->name) - extlen;
+	
+	buflen = len - namelen - extlen - sizelen - res;
+	
+	while (buflen < 0)
 	{
-		l = j - i - 1;
-		k = strlen(extstr);
-		while (k >= 0)
+		if (namelen <= 0)
+			break;
+		++buflen;
+		--namelen;
+	}
+	while (buflen < 0)
+	{
+		if (extlen <= 0)
+			break;
+		++buflen;
+		--extlen;
+	}
+	if (buflen < 0)
+	{
+		buflen += sizelen;
+		sizelen = 0;
+		while (buflen > 0)
 		{
-			str[j--] = file->name[k--];
-			if (l-- == 0)
+			if (extanc != 0)
 			{
-				str[j] = '~';
-				return OK;
+				if (extlen == extanc)
+					break;
+				--buflen;
+				++extlen;
+			}
+			else
+			{
+				if (namelen == nameanc)
+					break;
+				--buflen;
+				++namelen;
 			}
 		}
 	}
-	//TODO finish this shit
+
+	i = res;
+	for (j = 0; j < namelen; j++, i++)
+		str[i] = file->name[j];
+	if (nameanc != namelen)
+		str[i++] = '~';
+
+	if (extstr != NULL)
+	{
+		for (j = 0; j < extlen; j++, i++)
+			str[i] = extstr[j];
+		if (extanc != extlen)
+			str[i++] = '~';
+	}
+
+	if (buflen > 0)
+		for (j = 0; j <= buflen; j++, i++)
+			str[i] = ' ';
+
+	if (file->size != NULL && sizelen == sizeanc)
+		for (j = 0; j < sizelen; j++, i++)
+			str[i] = file->size[j];
+
 	return OK;
 }
 
 int scoutPrintList(SDIR *dir, WINDOW *win)
 {
 	ENTR *file;
+	char *string;
 	int i, j, len;
-	len = getmaxx(win);
-	char str[len];
 
-	for (i = 0; i < len; i++)
-		str[i] = '*';
-	str[len - 1] = '\0';
+	if ((len = getmaxx(win)) < 3)
+		return ERR;
+
+	if ((string = malloc(sizeof(char *) * len)) == NULL)
+		return ERR;
 
 	scoutPrintListPrep(dir);
 
@@ -1033,7 +1063,7 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
 	{
 		file = dir->entries[j]->file;
-		//scoutPrepareString(file, str, len);
+		scoutPrepareString(file, string, len - 1);
 
 		if (j == dir->selentry)
 			wattron(win, A_REVERSE | A_BOLD);
@@ -1041,10 +1071,11 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 			wattron(win, A_BOLD);
 
 		wattron(win, COLOR_PAIR(file->type));
-		mvwprintw(win, i, 0, str);
+		mvwprintw(win, i, 0, string);
 		wattrset(win, A_NORMAL);
 	}
 	wrefresh(win);
+	free(string);
 
 	return OK;
 }
@@ -1092,12 +1123,6 @@ int scoutPrintInfo(void)
 	wclrtoeol(stdscr);
 	wmove(stdscr, LINES - 1, 0);
 	wclrtoeol(stdscr);
-
-	if (scout->ready != OK)
-	{
-		wrefresh(stdscr);
-		return OK;
-	}
 	
 	if (scout->dir[CURR]->entries != NULL)
 		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
@@ -1213,15 +1238,8 @@ int scoutReadDir(SDIR *dir)
 int scoutRun(void)
 {
 	int c;
-	while (scout->running == OK && (c = wgetch(stdscr)) != EOF)
+	while (running && (c = wgetch(stdscr)) != EOF)
 	{
-		if (scout->ready  != OK)
-		{
-			if (c == 'q' || c == 'Q')
-				scout->running = ERR;
-			continue;
-		}
-
 		switch(c)
 		{
 			case 'k':
@@ -1275,7 +1293,7 @@ int scoutRun(void)
 
 			case 'q':
 			case 'Q':
-				scout->running = ERR;
+				running = !running;
 				break;
 
 			case 'r':
@@ -1313,7 +1331,6 @@ int scoutSetup(char *path)
 
 	if ((scout = calloc(1, sizeof(struct mainstruct))) == NULL)
 		return ERR;
-	scout->running = OK;
 
 	if ((scout->dir[CURR] = calloc(1, sizeof(SDIR))) == NULL)
 		return ERR;
@@ -1331,9 +1348,6 @@ int scoutSetup(char *path)
 	scoutInitializeCurses();
 	scoutBuildWindows();
 
-	if (scout->ready != OK)
-		return OK;
-
 	scoutLoadCURR(LOAD);
 	scoutLoadNEXT(LOAD);
 	scoutLoadPREV(LOAD);
@@ -1350,9 +1364,6 @@ void scoutTermResHandler(int null)
 	scoutBuildWindows();
 	scoutPrintInfo();
 	curs_set(0);
-
-	if (scout->ready != OK)
-		return;
 
 	for (i = 0; i < 3; i++)
 		if (scout->dir[i] != NULL)
