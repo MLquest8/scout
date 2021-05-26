@@ -71,7 +71,7 @@ struct sdir
 	int firstentry;
 	int entrycount;
 	NODE **entries;
-	char **selected;
+	char *selected;
 };
 
 /* function declarations */
@@ -80,7 +80,6 @@ static int scoutBuildWindows(void);
 static int scoutDestroyWindows(void);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
-static int scoutFindEntry(SDIR *, char *);
 static int scoutFreeDir(SDIR **);
 static int scoutFreeInfo(ENTR *);
 static int scoutFreeDirSize(SDIR *);
@@ -92,6 +91,7 @@ static int scoutInitializeCurses(void);
 static int scoutLoadCURR(int);
 static int scoutLoadNEXT(int);
 static int scoutLoadPREV(int);
+static int scoutMatchSelEntry(SDIR *);
 static int scoutMove(int);
 static int scoutPrepareString(ENTR *, char *, int);
 static int scoutPrintList(SDIR *, WINDOW *);
@@ -283,43 +283,6 @@ int scoutCompareEntries(const void *entryA, const void *entryB)
 		return -1;
 
 	return 1;
-}
-
-int scoutFindEntry(SDIR *dir, char *name)
-{
-	int loop = 0;
-	int i, j, k, l;
-	NODE *dummyptr;
-	NODE dummynode;
-	ENTR dummyfile;
-
-	dummyptr = &dummynode;
-	dummynode.file = &dummyfile;
-	dummyfile.type = CP_DIRECTORY;
-	dummyfile.name = name;
-
-	i = 0;
-	j = dir->entrycount;
-	l = (j - i) / 2;
-	
-	while ((k = scoutCompareEntries(&dummyptr, &dir->entries[l])) != 0)
-	{
-		if (k < 0)
-		{
-			j = l;
-			l = (j - i) / 2;
-		}
-		else
-		{
-			i = l;
-			l = l + (j - i) / 2;
-		}
-
-		if (loop++ > dir->entrycount)
-			return ERR;
-	}
-
-	return l;
 }
 
 int scoutFreeDir(SDIR **pdir)
@@ -825,17 +788,54 @@ int scoutLoadPREV(int mode)
 
 		scoutReadDir(scout->dir[PREV]);
 
-		temp = strrchr(scout->dir[CURR]->path, '/') + 1;
-		scout->dir[CURR]->selentry = scoutFindEntry(scout->dir[PREV], temp);
+		temp = strrchr(scout->dir[CURR]->path, '/');
+		if ((scout->dir[PREV]->selected = malloc(sizeof(char *) * strlen(temp++))) == NULL)
+			return ERR;
+		strcpy(scout->dir[PREV]->selected, temp);
+		scoutMatchSelEntry(scout->dir[PREV]);
 	}
 
 	scoutPrintList(scout->dir[PREV], scout->win[PREV]);
 	return OK;
 }
 
-int scoutMove(int direction)
+int scoutMatchSelEntry(SDIR *dir)
 {
-	switch (direction)
+	int i, j, k, l;
+	NODE *dummyptr;
+	NODE dummynode;
+	ENTR dummyfile;
+
+	dummyptr = &dummynode;
+	dummynode.file = &dummyfile;
+	dummyfile.type = CP_DIRECTORY;
+	dummyfile.name = dir->selected;
+
+	i = 0;
+	j = dir->entrycount;
+	l = (j - i) / 2;
+	
+	while ((k = scoutCompareEntries(&dummyptr, &dir->entries[l])) != 0)
+	{
+		if (k < 0)
+		{
+			j = l;
+			l = (j - i) / 2;
+		}
+		else
+		{
+			i = l;
+			l = l + (j - i) / 2;
+		}
+	}
+
+	dir->selentry = l;
+	return OK;
+}
+
+int scoutMove(int dir)
+{
+	switch (dir)
 	{
 		case TOP:
 			if (scout->dir[CURR]->entries == NULL)
@@ -863,7 +863,7 @@ int scoutMove(int direction)
 			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
 
 			scout->dir[CURR]->selentry = scout->dir[CURR]->entrycount - 1;
-			scout->dir[CURR]->firstentry = 0;
+			scout->dir[CURR]->firstentry = 0; /* handled elsewhere */
 			
 			scoutLoadCURR(RELOAD);
 			scoutLoadNEXT(LOAD);
