@@ -82,7 +82,8 @@ static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
 static int scoutFreeDir(SDIR **);
 static int scoutFreeInfo(ENTR *);
-static int scoutFreeSize(void);
+static int scoutFreeDirSize(SDIR *);
+static int scoutGetDirSize(SDIR *);
 static int scoutGetFileInfo(ENTR *);
 static int scoutGetFileSize(ENTR *);
 static int scoutGetFileType(ENTR *);
@@ -310,8 +311,8 @@ int scoutFreeDir(SDIR **pdir)
 		free(dir->entries);
 	}
 	free(dir);
-
 	*pdir = NULL;
+	
 	return OK;
 }
 
@@ -329,15 +330,25 @@ int scoutFreeInfo(ENTR *file)
 	return OK;
 }
 
-int scoutFreeSize(void)
+int scoutFreeDirSize(SDIR *dir)
 {
-	int i, j;
+	int i;
 
-	for (i = 0, j = scout->dir[CURR]->firstentry; i < scout->lines && j < scout->dir[CURR]->entrycount; i++, j++)
+	for (i = 0; i < dir->entrycount; i++)
 	{
-		free(scout->dir[CURR]->entries[j]->file->size);
-		scout->dir[CURR]->entries[j]->file->size = NULL;
+		free(dir->entries[i]->file->size);
+		dir->entries[i]->file->size = NULL;
 	}
+
+	return OK;
+}
+
+int scoutGetDirSize(SDIR *dir)
+{
+	int i;
+
+	for (i = 0; i < dir->entrycount; i++)
+		scoutGetFileSize(dir->entries[i]->file);
 
 	return OK;
 }
@@ -663,11 +674,13 @@ int scoutInitializeCurses(void)
 
 int scoutLoadCURR(int mode)
 {
-	int i, j;
 	NODE *selentry;
 
 	if (mode == LOAD)
+	{
 		scoutReadDir(scout->dir[CURR]);
+		scoutGetDirSize(scout->dir[CURR]);
+	}
 
 	if (scout->dir[CURR]->entries != NULL)
 		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
@@ -682,11 +695,6 @@ int scoutLoadCURR(int mode)
 		wattrset(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
 		wrefresh(scout->win[NEXT]);
 		return OK;
-	}
-	else
-	{
-		for (i = 0, j = scout->dir[CURR]->firstentry; i < scout->lines && j < scout->dir[CURR]->entrycount; i++, j++)
-			scoutGetFileSize(scout->dir[CURR]->entries[j]->file);
 	}
 
 	scoutPrintList(scout->dir[CURR], scout->win[CURR]);
@@ -838,7 +846,6 @@ int scoutMove(int dir)
 
 			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
 
-			scoutFreeSize();
 			scout->dir[CURR]->firstentry = scout->dir[CURR]->selentry = 0;
 			
 			scoutLoadCURR(RELOAD);
@@ -855,7 +862,6 @@ int scoutMove(int dir)
 
 			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
 
-			scoutFreeSize();
 			scout->dir[CURR]->selentry = scout->dir[CURR]->entrycount - 1;
 			scout->dir[CURR]->firstentry = 0; /* handled elsewhere */
 			
@@ -910,10 +916,12 @@ int scoutMove(int dir)
 
 			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
 
-			scoutFreeSize();
+			scoutFreeDirSize(scout->dir[CURR]);
 			scout->dir[NEXT] = scout->dir[CURR];
 			scout->dir[CURR] = scout->dir[PREV];
+
 			chdir(scout->dir[CURR]->path);
+			scoutGetDirSize(scout->dir[CURR]);
 
 			scoutLoadCURR(RELOAD);
 			scoutLoadNEXT(RELOAD);
@@ -933,10 +941,12 @@ int scoutMove(int dir)
 
 			bufferDIR = scout->dir[PREV]; // TODO Improve buffering system
 
-			scoutFreeSize();
+			scoutFreeDirSize(scout->dir[CURR]);
 			scout->dir[PREV] = scout->dir[CURR];
 			scout->dir[CURR] = scout->dir[NEXT];
+
 			chdir(scout->dir[CURR]->path);
+			scoutGetDirSize(scout->dir[CURR]);
 
 			scoutLoadPREV(RELOAD);
 			scoutLoadCURR(RELOAD);
