@@ -711,27 +711,10 @@ int scoutInitializeCurses(void)
 
 int scoutLoadCURR(int mode)
 {
-	NODE *selentry;
-
 	if (mode == LOAD)
 	{
 		scoutReadDir(scout->dir[CURR]);
 		scoutGetDirSize(scout->dir[CURR]);
-	}
-
-	if (scout->dir[CURR]->entries != NULL)
-		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
-	else
-		selentry = NULL;
-
-	if (selentry == NULL)
-	{
-		wclear(scout->win[NEXT]);
-		wattron(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
-		mvwprintw(scout->win[NEXT], 0, 0, errorDirEmpty);
-		wattrset(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
-		wrefresh(scout->win[NEXT]);
-		return OK;
 	}
 
 	scoutPrintList(scout->dir[CURR], scout->win[CURR]);
@@ -751,12 +734,9 @@ int scoutLoadNEXT(int mode)
 	else
 		selentry = NULL;
 
-	if (selentry == NULL)
+	if (selentry == NULL || selentry->file->type != CP_DIRECTORY)
 	{
 		wclear(scout->win[NEXT]);
-		wattron(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
-		mvwprintw(scout->win[NEXT], 0, 0, errorDirEmpty);
-		wattrset(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
 		wrefresh(scout->win[NEXT]);
 		return OK;
 	}
@@ -767,13 +747,6 @@ int scoutLoadNEXT(int mode)
 		wattron(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
 		mvwprintw(scout->win[NEXT], 0, 0, errorNoAccess);
 		wattrset(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
-		wrefresh(scout->win[NEXT]);
-		return OK;
-	}
-
-	if (selentry->file->type != CP_DIRECTORY)
-	{
-		wclear(scout->win[NEXT]);
 		wrefresh(scout->win[NEXT]);
 		return OK;
 	}
@@ -826,7 +799,7 @@ int scoutLoadPREV(int mode)
 		scoutReadDir(scout->dir[PREV]);
 
 		temp = strrchr(scout->dir[CURR]->path, '/') + 1;
-		scout->dir[CURR]->selentry = scoutFindEntry(scout->dir[PREV], temp);
+		scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], temp);
 	}
 
 	scoutPrintList(scout->dir[PREV], scout->win[PREV]);
@@ -1066,6 +1039,16 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 
 	if ((string = malloc(sizeof(char *) * len)) == NULL)
 		return ERR;
+
+	if (dir->entries == NULL)
+	{
+		wclear(win);
+		wattron(win, COLOR_PAIR(CP_ERROR));
+		mvwprintw(win, 0, 0, errorDirEmpty);
+		wattrset(win, COLOR_PAIR(CP_ERROR));
+		wrefresh(win);
+		return OK;
+	}
 
 	scoutPrintListPrep(dir);
 
