@@ -1034,12 +1034,6 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	char *string;
 	int i, j, len;
 
-	if ((len = getmaxx(win)) < 3)
-		return ERR;
-
-	if ((string = malloc(sizeof(char *) * len)) == NULL)
-		return ERR;
-
 	if (dir->entries == NULL)
 	{
 		wclear(win);
@@ -1049,6 +1043,12 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 		wrefresh(win);
 		return OK;
 	}
+
+	if ((len = getmaxx(win)) < 3)
+		return ERR;
+
+	if ((string = malloc(sizeof(char *) * len)) == NULL)
+		return ERR;
 
 	scoutPrintListPrep(dir);
 
