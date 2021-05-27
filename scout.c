@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <signal.h>
-#include <stdarg.h>
+//#include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 #include <pwd.h>
@@ -66,10 +66,21 @@ typedef struct sdir
 	ENTR **entries;
 } SDIR;
 
+typedef struct cach
+{
+	char *sel;
+	char *path;
+	char **marked;
+	int markedcount;
+	struct cach *next;
+} CACH;
+
 /* function declarations */
 static int scoutAddFile(ENTR **, char *);
 static int scoutBuildWindows(void);
 static int scoutDestroyWindows(void);
+static int scoutCacheDir(SDIR *);
+static int scoutCacheSearch(SDIR *);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
 static int scoutFindEntry(SDIR *, char *);
@@ -102,12 +113,12 @@ static struct mainstruct
 	int lines;
 	int topthrsh;
 	int botthrsh;
+
 	SDIR *dir[3];
 	WINDOW *win[3];
 	char *username;
+	CACH *cache[HSIZE];
 } *scout;
-
-static SDIR *bufferDIR;
 
 /* configuration */
 #include "config.h"
@@ -183,6 +194,113 @@ int scoutDestroyWindows(void)
 		return OK;
 	
 	refresh();
+	return OK;
+}
+
+int scoutCacheSearch(SDIR *dir)
+{
+	//int i;
+	CACH *temp;
+	unsigned int key;
+
+	key = utilsCalcHash(strrchr(dir->path, '/'));
+	for (temp = scout->cache[key]; temp != NULL; temp = temp->next)
+	{
+		if (strcmp(dir->path, temp->path) == 0)
+		{
+			if ((dir->selentry = scoutFindEntry(dir, temp->sel)) < 0)
+				dir->selentry = 0;
+			//do the marked shit here;
+			return OK;
+		}
+	}
+
+	return ERR;
+}
+
+int scoutCacheDir(SDIR *dir)
+{
+	int i = 0;
+	CACH *temp;
+	unsigned int key;
+
+	if (dir->entries == NULL)
+		return OK;
+
+	key = utilsCalcHash(strrchr(dir->path, '/'));
+	temp = scout->cache[key];
+
+	while (temp != NULL)
+	{
+		if (strcmp(dir->path, temp->path) == OK)
+		{
+			if (temp->marked != NULL)
+				while (i < temp->markedcount)
+					free(temp->marked[i++]);
+			free(temp->sel);
+			temp->sel = NULL;
+			free(temp->marked);
+			temp->marked = NULL;
+			break;
+		}
+		temp = temp->next;
+	}
+
+	if (temp == NULL)
+	{
+		if ((temp = calloc(1, sizeof(CACH))) == NULL)
+			return ERR;
+
+		if ((temp->path = malloc(sizeof(char *) * (strlen(dir->path) + 1))) == NULL)
+			return ERR;
+
+		strcpy(temp->path, dir->path);
+		temp->next = scout->cache[key];
+		scout->cache[key] = temp;
+	}
+
+	if (dir->selentry != 0)
+	{
+		if ((temp->sel = malloc(sizeof(char *) * (strlen(dir->entries[dir->selentry]->name) + 1))) == NULL)
+			return ERR;
+
+		strcpy(temp->sel, dir->entries[dir->selentry]->name);
+	}
+
+	for (i = 0; i < dir->entrycount; i++)
+	{
+		if (dir->entries[i]->issel)
+		{
+			if ((temp->marked = realloc(temp->marked, sizeof(char *) * (temp->markedcount + 1))) == NULL)
+				return ERR;
+
+			if ((temp->marked[temp->markedcount] = malloc(sizeof(char *) * (strlen(dir->entries[i]->name) + 1))) == NULL)
+				return ERR;
+
+			strcpy(temp->marked[temp->markedcount++], dir->entries[i]->name);
+		}
+	}
+	
+	if (temp->sel == NULL && temp->marked == NULL)
+	{
+		temp = scout->cache[key];
+		if (strcmp(dir->path, temp->path) == 0)
+			scout->cache[key] = temp->next;
+		else
+		{
+			while (temp->next != NULL)
+			{
+				if (strcmp(dir->path, temp->next->path) == 0)
+					break;
+				temp = temp->next;
+			}
+			temp->next = temp->next->next;
+			temp = temp->next;
+		}
+		free(temp->path);
+		free(temp);
+	}
+
 	return OK;
 }
 
@@ -287,7 +405,7 @@ int scoutFindEntry(SDIR *dir, char *name)
 	dummyptr = &dummy;
 	dummy.type = CP_DIRECTORY;
 	dummy.name = name;
-
+LOOP:
 	i = 0;
 	j = dir->entrycount;
 	l = (j - i) / 2;
@@ -306,7 +424,15 @@ int scoutFindEntry(SDIR *dir, char *name)
 		}
 
 		if (loop++ > dir->entrycount)
+		{
+			if (dummy.type == CP_DIRECTORY)
+			{
+				loop = 0;
+				dummy.type = CP_DEFAULT;
+				goto LOOP;
+			}
 			return ERR;
+		}
 	}
 
 	return l;
@@ -749,6 +875,7 @@ int scoutLoadNEXT(int mode)
 			sprintf(scout->dir[NEXT]->path, "/%s", selentry->name);
 
 		scoutReadDir(scout->dir[NEXT]);
+		scoutCacheSearch(scout->dir[NEXT]);
 	}
 
 	scoutPrintList(scout->dir[NEXT], scout->win[NEXT]);
@@ -785,8 +912,11 @@ int scoutLoadPREV(int mode)
 
 		scoutReadDir(scout->dir[PREV]);
 
-		temp = strrchr(scout->dir[CURR]->path, '/') + 1;
-		scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], temp);
+		if (scoutCacheSearch(scout->dir[PREV]) != OK)
+		{
+			temp = strrchr(scout->dir[CURR]->path, '/') + 1;
+			scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], temp);
+		}
 	}
 
 	scoutPrintList(scout->dir[PREV], scout->win[PREV]);
@@ -795,6 +925,7 @@ int scoutLoadPREV(int mode)
 
 int scoutMove(int direction)
 {
+	SDIR *buf;
 	switch (direction)
 	{
 		case TOP:
@@ -804,7 +935,7 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->selentry == 0)
 				return OK;
 
-			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
+			buf = scout->dir[NEXT];
 
 			scout->dir[CURR]->firstentry = scout->dir[CURR]->selentry = 0;
 			
@@ -820,7 +951,7 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->selentry == scout->dir[CURR]->entrycount - 1)
 				return OK;
 
-			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
+			buf = scout->dir[NEXT];
 
 			scout->dir[CURR]->selentry = scout->dir[CURR]->entrycount - 1;
 			scout->dir[CURR]->firstentry = 0;
@@ -837,7 +968,7 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->selentry == 0)
 				return OK;
 
-			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
+			buf = scout->dir[NEXT];
 
 			if (scout->dir[CURR]->selentry - scout->dir[CURR]->firstentry <= scout->topthrsh)
 				if (scout->dir[CURR]->firstentry != 0)
@@ -857,7 +988,7 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->selentry == scout->dir[CURR]->entrycount - 1)
 				return OK;
 
-			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
+			buf = scout->dir[NEXT]; 
 
 			if (scout->dir[CURR]->selentry - scout->dir[CURR]->firstentry >= scout->botthrsh)
 				if (scout->dir[CURR]->entrycount - scout->dir[CURR]->selentry > scout->topthrsh + 1)
@@ -874,7 +1005,7 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->path[1] == '\0')
 				return OK;
 
-			bufferDIR = scout->dir[NEXT]; // TODO Improve buffering system
+			buf = scout->dir[NEXT];
 
 			scoutFreeDirSize(scout->dir[CURR]);
 			scout->dir[NEXT] = scout->dir[CURR];
@@ -899,7 +1030,7 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->isatu != OK)
 				return OK;
 
-			bufferDIR = scout->dir[PREV]; // TODO Improve buffering system
+			buf = scout->dir[PREV];
 
 			scoutFreeDirSize(scout->dir[CURR]);
 			scout->dir[PREV] = scout->dir[CURR];
@@ -919,7 +1050,8 @@ int scoutMove(int direction)
 	}
 
 	scoutPrintInfo();
-	scoutFreeDir(&bufferDIR); // TODO Improve buffering system
+	scoutCacheDir(buf);
+	scoutFreeDir(&buf);
 
 	return OK;
 }
@@ -1197,9 +1329,6 @@ int scoutReadDir(SDIR *dir)
 		if ((dir->entries = realloc(dir->entries, sizeof(ENTR *) * (dir->entrycount + 1))) == NULL)
 			return ERR;
 
-		if ((dir->entries[dir->entrycount] = malloc(sizeof(ENTR *))) == NULL)
-			return ERR;
-
 		dir->entries[dir->entrycount++] = entry;
 	}
 
@@ -1288,11 +1417,34 @@ int scoutRun(void)
 
 int scoutQuit(void)
 {
+	int i, j;
+	CACH *temp, *buf;
+
 	scoutFreeDir(&scout->dir[PREV]);
 	scoutFreeDir(&scout->dir[CURR]);
 	scoutFreeDir(&scout->dir[NEXT]);
 	scoutDestroyWindows();
 	free(scout->username);
+
+	i = j = 0;
+	while (i < HSIZE)
+	{
+		temp = scout->cache[i];
+		while (temp != NULL)
+		{
+			while (j < temp->markedcount)
+				free(temp->marked[j]);
+			free(temp->marked);
+			free(temp->path);
+			free(temp->sel);
+
+			buf = temp;
+			temp = temp->next;
+			free(buf);
+			j = 0;
+		}
+		free(scout->cache[i++]);
+	}
 	free(scout);
 
 	return OK;

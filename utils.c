@@ -2,6 +2,16 @@
 #include <ctype.h>
 #include "utils.h"
 
+unsigned int utilsCalcHash(char *str)
+{
+	unsigned int hashval;
+
+	for (hashval = 0; *str != '\0'; str++)
+		hashval = *str + 31 * hashval;
+
+	return hashval % HSIZE;
+}
+
 int utilsNameCMP(char *name1, char *name2)
 {
 	int num1, num2;
