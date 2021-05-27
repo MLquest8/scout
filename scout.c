@@ -12,7 +12,8 @@
 #include "utils.h"
 
 /* enums */
-enum {PREV, CURR, NEXT, LOAD, RELOAD};
+enum {LOAD, RELOAD};
+enum {PREV, CURR, NEXT};
 enum {TOP, BOT, UP, DOWN, LEFT, RIGHT};
 enum
 {
@@ -41,38 +42,29 @@ enum
 };
 
 /* structs */
-typedef struct entr ENTR;
-typedef struct node NODE;
-typedef struct sdir SDIR;
-
-struct entr
+typedef struct entr
 {
 	int type;
 	int isatu; /* is accessible to user */
+	int issel; /* is selected */
 	int issym; /* is symlink */
+	int istgd; /* is tagged */
 	char *name;
 	char *size;
 	char *perms;
 	char *users;
 	char *dates;
 	char *lpath;
-};
+} ENTR;
 
-struct node
-{
-	SDIR *buf;
-	ENTR *file;
-};
-
-struct sdir
+typedef struct sdir
 {	
 	char *path;
 	int selentry;
 	int firstentry;
 	int entrycount;
-	NODE **entries;
-	char **selected;
-};
+	ENTR **entries;
+} SDIR;
 
 /* function declarations */
 static int scoutAddFile(ENTR **, char *);
@@ -120,7 +112,7 @@ static SDIR *bufferDIR;
 /* configuration */
 #include "config.h"
 
-int scoutAddFile(ENTR **file, char *path)
+int scoutAddFile(ENTR **entry, char *path)
 {
 	ENTR *temp;
 	struct stat fstat;
@@ -128,7 +120,7 @@ int scoutAddFile(ENTR **file, char *path)
 	if (lstat(path, &fstat) != OK)
 		return ERR;
 
-	if ((temp = (ENTR *) calloc(1, sizeof(ENTR))) == NULL)
+	if ((temp = calloc(1, sizeof(ENTR))) == NULL)
 		return ERR;
 
 	if ((temp->name = malloc(sizeof(char *) * (strlen(path) + 1))) == NULL)
@@ -136,7 +128,7 @@ int scoutAddFile(ENTR **file, char *path)
 
 	strcpy(temp->name, path);
 	scoutGetFileType(temp);
-	*file = temp;
+	*entry = temp;
 
 	return OK;
 }
@@ -268,18 +260,18 @@ int scoutCommandLine(char *cmd)
 	return OK;
 }
 
-int scoutCompareEntries(const void *entryA, const void *entryB)
+int scoutCompareEntries(const void *A, const void *B)
 {
-	ENTR *fileA = (*(NODE **) entryA)->file;
-	ENTR *fileB = (*(NODE **) entryB)->file;
+	ENTR *entryA = *(ENTR **) A;
+	ENTR *entryB = *(ENTR **) B;
 
-	if (fileA->type == CP_DIRECTORY && fileB->type == CP_DIRECTORY)
-		return utilsNameCMP(fileA->name, fileB->name);
+	if (entryA->type == CP_DIRECTORY && entryB->type == CP_DIRECTORY)
+		return utilsNameCMP(entryA->name, entryB->name);
 	
-	if (fileA->type != CP_DIRECTORY && fileB->type != CP_DIRECTORY)
-		return utilsNameCMP(fileA->name, fileB->name);
+	if (entryA->type != CP_DIRECTORY && entryB->type != CP_DIRECTORY)
+		return utilsNameCMP(entryA->name, entryB->name);
 
-	if (fileA->type == CP_DIRECTORY && fileB->type != CP_DIRECTORY)
+	if (entryA->type == CP_DIRECTORY && entryB->type != CP_DIRECTORY)
 		return -1;
 
 	return 1;
@@ -287,16 +279,14 @@ int scoutCompareEntries(const void *entryA, const void *entryB)
 
 int scoutFindEntry(SDIR *dir, char *name)
 {
+	ENTR dummy;
 	int loop = 0;
 	int i, j, k, l;
-	NODE *dummyptr;
-	NODE dummynode;
-	ENTR dummyfile;
-
-	dummyptr = &dummynode;
-	dummynode.file = &dummyfile;
-	dummyfile.type = CP_DIRECTORY;
-	dummyfile.name = name;
+	ENTR *dummyptr;
+	
+	dummyptr = &dummy;
+	dummy.type = CP_DIRECTORY;
+	dummy.name = name;
 
 	i = 0;
 	j = dir->entrycount;
@@ -326,43 +316,40 @@ int scoutFreeDir(SDIR **pdir)
 {
 	int i = 0;
 	SDIR *dir;
-	ENTR *file;
 
 	if ((dir = *pdir) == NULL)
 		return ERR;
 
-	free(dir->path);
-	free(dir->selected);
 	if (dir->entries != NULL)
 	{
 		while (i < dir->entrycount)
 		{
-			scoutFreeDir(&dir->entries[i]->buf);
-			file = dir->entries[i]->file;
-			scoutFreeInfo(file);
-			free(file->size);
-			free(file->name);
-			free(file);
+			//scoutFreeDir(&dir->entries[i]->cache);
+
+			scoutFreeInfo(dir->entries[i]);
+			free(dir->entries[i]->size);
+			free(dir->entries[i]->name);
 			free(dir->entries[i++]);
 		}
 		free(dir->entries);
 	}
+	free(dir->path);
 	free(dir);
+
 	*pdir = NULL;
-	
 	return OK;
 }
 
-int scoutFreeInfo(ENTR *file)
+int scoutFreeInfo(ENTR *entry)
 {	
-	free(file->perms);
-	file->perms = NULL;
-	free(file->users);
-	file->users = NULL;
-	free(file->dates);
-	file->dates = NULL;
-	free(file->lpath);
-	file->lpath = NULL;
+	free(entry->perms);
+	entry->perms = NULL;
+	free(entry->users);
+	entry->users = NULL;
+	free(entry->dates);
+	entry->dates = NULL;
+	free(entry->lpath);
+	entry->lpath = NULL;
 
 	return OK;
 }
@@ -373,8 +360,8 @@ int scoutFreeDirSize(SDIR *dir)
 
 	for (i = 0; i < dir->entrycount; i++)
 	{
-		free(dir->entries[i]->file->size);
-		dir->entries[i]->file->size = NULL;
+		free(dir->entries[i]->size);
+		dir->entries[i]->size = NULL;
 	}
 
 	return OK;
@@ -385,7 +372,7 @@ int scoutGetDirSize(SDIR *dir)
 	int i;
 
 	for (i = 0; i < dir->entrycount; i++)
-		scoutGetFileSize(dir->entries[i]->file);
+		scoutGetFileSize(dir->entries[i]);
 
 	return OK;
 }
@@ -723,7 +710,7 @@ int scoutLoadCURR(int mode)
 
 int scoutLoadNEXT(int mode)
 {
-	NODE *selentry;
+	ENTR *selentry;
 
 	if (mode == LOAD)
 		if ((scout->dir[NEXT] = calloc(1, sizeof(SDIR))) == NULL)
@@ -734,14 +721,14 @@ int scoutLoadNEXT(int mode)
 	else
 		selentry = NULL;
 
-	if (selentry == NULL || selentry->file->type != CP_DIRECTORY)
+	if (selentry == NULL || selentry->type != CP_DIRECTORY)
 	{
 		wclear(scout->win[NEXT]);
 		wrefresh(scout->win[NEXT]);
 		return OK;
 	}
 
-	if (selentry->file->isatu != OK)
+	if (selentry->isatu != OK)
 	{
 		wclear(scout->win[NEXT]);
 		wattron(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
@@ -753,13 +740,13 @@ int scoutLoadNEXT(int mode)
 
 	if (mode == LOAD)
 	{
-		if ((scout->dir[NEXT]->path = malloc(sizeof(char *) * (strlen(selentry->file->name) + 3))) == NULL)
+		if ((scout->dir[NEXT]->path = malloc(sizeof(char *) * (strlen(selentry->name) + 3))) == NULL)
 			return ERR;
 
 		if (scout->dir[CURR]->path[1] != '\0')
-			sprintf(scout->dir[NEXT]->path, "%s/%s", scout->dir[CURR]->path, selentry->file->name);
+			sprintf(scout->dir[NEXT]->path, "%s/%s", scout->dir[CURR]->path, selentry->name);
 		else
-			sprintf(scout->dir[NEXT]->path, "/%s", selentry->file->name);
+			sprintf(scout->dir[NEXT]->path, "/%s", selentry->name);
 
 		scoutReadDir(scout->dir[NEXT]);
 	}
@@ -906,10 +893,10 @@ int scoutMove(int direction)
 			if (scout->dir[CURR]->entries == NULL)
 				return OK;
 
-			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->file->type != CP_DIRECTORY)
+			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->type != CP_DIRECTORY)
 				return OK;
 
-			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->file->isatu != OK)
+			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->isatu != OK)
 				return OK;
 
 			bufferDIR = scout->dir[PREV]; // TODO Improve buffering system
@@ -937,7 +924,7 @@ int scoutMove(int direction)
 	return OK;
 }
 
-int scoutPrepareString(ENTR *file, char *str, int len)
+int scoutPrepareString(ENTR *entry, char *str, int len)
 {
 	int res;
 	int i, j;
@@ -952,17 +939,17 @@ int scoutPrepareString(ENTR *file, char *str, int len)
 	str[len--] = '\0';
 	str[len--] = ' ';
 
-	if (file->size != NULL)
-		sizeanc = sizelen = strlen(file->size);
+	if (entry->size != NULL)
+		sizeanc = sizelen = strlen(entry->size);
 	else
 		sizeanc = sizelen = 0;
 
-	if (file->name[0] != '.' && (extstr = strrchr(file->name, '.')) != NULL)
+	if (entry->name[0] != '.' && (extstr = strrchr(entry->name, '.')) != NULL)
 		extanc = extlen = strlen(extstr);
 	else
 		extanc = extlen = 0;
 	
-	nameanc = namelen = strlen(file->name) - extlen;
+	nameanc = namelen = strlen(entry->name) - extlen;
 	
 	buflen = len - namelen - extlen - sizelen - res;
 	
@@ -1005,7 +992,7 @@ int scoutPrepareString(ENTR *file, char *str, int len)
 
 	i = res;
 	for (j = 0; j < namelen; j++, i++)
-		str[i] = file->name[j];
+		str[i] = entry->name[j];
 	if (nameanc != namelen)
 		str[i++] = '~';
 
@@ -1021,16 +1008,16 @@ int scoutPrepareString(ENTR *file, char *str, int len)
 		for (j = 0; j <= buflen; j++, i++)
 			str[i] = ' ';
 
-	if (file->size != NULL && sizelen == sizeanc)
+	if (entry->size != NULL && sizelen == sizeanc)
 		for (j = 0; j < sizelen; j++, i++)
-			str[i] = file->size[j];
+			str[i] = entry->size[j];
 
 	return OK;
 }
 
 int scoutPrintList(SDIR *dir, WINDOW *win)
 {
-	ENTR *file;
+	ENTR *entry;
 	char *string;
 	int i, j, len;
 
@@ -1055,15 +1042,15 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	wclear(win);
 	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
 	{
-		file = dir->entries[j]->file;
-		scoutPrepareString(file, string, len - 1);
+		entry = dir->entries[j];
+		scoutPrepareString(entry, string, len - 1);
 
 		if (j == dir->selentry)
 			wattron(win, A_REVERSE | A_BOLD);
-		else if (file->type == CP_DIRECTORY || file->type == CP_EXECUTABLE || file->type >= 8)
+		else if (entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
 			wattron(win, A_BOLD);
 
-		wattron(win, COLOR_PAIR(file->type));
+		wattron(win, COLOR_PAIR(entry->type));
 		mvwprintw(win, i, 0, string);
 		wattrset(win, A_NORMAL);
 	}
@@ -1109,7 +1096,7 @@ int scoutPrintListPrep(SDIR *dir)
 
 int scoutPrintInfo(void)
 {
-	NODE *selentry;
+	ENTR *selentry;
 
 	/* Cleanup */
 	wmove(stdscr, 0, 0);
@@ -1137,7 +1124,7 @@ int scoutPrintInfo(void)
 	if (selentry != NULL)
 	{
 		wattron(stdscr, COLOR_PAIR(CP_TOPBARFILE));
-		printw(selentry->file->name);
+		printw(selentry->name);
 		wattroff(stdscr, COLOR_PAIR(CP_TOPBARFILE));
 	}
 	waddch(stdscr, '\n');
@@ -1146,29 +1133,29 @@ int scoutPrintInfo(void)
 	/* Bottom bar stuff */
 	wmove(stdscr, LINES - 1, 0);
 	if (selentry != NULL 
-	&& scoutGetFileInfo(selentry->file) != ERR)
+	&& scoutGetFileInfo(selentry) != ERR)
 	{
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARPERM));
-		wprintw(stdscr, selentry->file->perms);
+		wprintw(stdscr, selentry->perms);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARPERM));
 		waddch(stdscr, ' ');
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARUSER));
-		wprintw(stdscr, selentry->file->users);
+		wprintw(stdscr, selentry->users);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARUSER));
 		waddch(stdscr, ' ');
 		wattron(stdscr, COLOR_PAIR(CP_BOTBARDATE));
-		wprintw(stdscr, selentry->file->dates);
+		wprintw(stdscr, selentry->dates);
 		wattroff(stdscr, COLOR_PAIR(CP_BOTBARDATE));
 		waddch(stdscr, ' ');
-		if (selentry->file->issym)
+		if (selentry->issym)
 		{
 			wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-			wprintw(stdscr, "-> ", selentry->file->lpath);
+			wprintw(stdscr, "-> ", selentry->lpath);
 			wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-			if (selentry->file->lpath != NULL)
+			if (selentry->lpath != NULL)
 			{
 				wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-				wprintw(stdscr, selentry->file->lpath);
+				wprintw(stdscr, selentry->lpath);
 				wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
 			}
 			else
@@ -1180,7 +1167,7 @@ int scoutPrintInfo(void)
 			
 		}
 		waddch(stdscr, '\n');
-		scoutFreeInfo(selentry->file);
+		scoutFreeInfo(selentry);
 	}
 
 	wrefresh(stdscr);
@@ -1190,7 +1177,7 @@ int scoutPrintInfo(void)
 int scoutReadDir(SDIR *dir)
 {
 	DIR *pdir;
-	ENTR *file;
+	ENTR *entry;
 	struct dirent *d;
 
 	if ((pdir = opendir(dir->path)) == NULL)
@@ -1204,22 +1191,20 @@ int scoutReadDir(SDIR *dir)
 		|| strcmp(d->d_name, "..") == OK)
 			continue;
 
-		if (scoutAddFile(&file, d->d_name) != OK)
+		if (scoutAddFile(&entry, d->d_name) != OK)
 			continue; // error to log!
 
-		if ((dir->entries = realloc(dir->entries, sizeof(NODE *) * (dir->entrycount + 1))) == NULL)
+		if ((dir->entries = realloc(dir->entries, sizeof(ENTR *) * (dir->entrycount + 1))) == NULL)
 			return ERR;
 
-		if ((dir->entries[dir->entrycount] = malloc(sizeof(NODE))) == NULL)
+		if ((dir->entries[dir->entrycount] = malloc(sizeof(ENTR *))) == NULL)
 			return ERR;
-		
-		dir->entries[dir->entrycount]->file = file;
-		dir->entries[dir->entrycount]->buf = NULL;
-		dir->entrycount++;
+
+		dir->entries[dir->entrycount++] = entry;
 	}
 
 	if (dir->entries != NULL)
-		qsort(dir->entries, dir->entrycount, sizeof(NODE *), scoutCompareEntries);
+		qsort(dir->entries, dir->entrycount, sizeof(ENTR *), scoutCompareEntries);
 
 	if (dir != scout->dir[CURR])
 		chdir(scout->dir[CURR]->path);
