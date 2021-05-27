@@ -46,7 +46,7 @@ typedef struct entr
 {
 	int type;
 	int isatu; /* is accessible to user */
-	int issel; /* is selected */
+	int ismrk; /* is selected */
 	int issym; /* is symlink */
 	int istgd; /* is tagged */
 	char *name;
@@ -95,8 +95,9 @@ static int scoutInitializeCurses(void);
 static int scoutLoadCURR(int);
 static int scoutLoadNEXT(int);
 static int scoutLoadPREV(int);
+static int scoutMarkEntry(ENTR **, int );
 static int scoutMove(int);
-static int scoutPrepareString(ENTR *, char *, int);
+static int scoutPrepareString(ENTR *, char *, int, int, int);
 static int scoutPrintList(SDIR *, WINDOW *);
 static int scoutPrintListPrep(SDIR *);
 static int scoutPrintInfo(void);
@@ -199,18 +200,28 @@ int scoutDestroyWindows(void)
 
 int scoutCacheSearch(SDIR *dir)
 {
-	//int i;
+	int len;
+	int i, j;
 	CACH *temp;
-	unsigned int key;
+	unsigned int hash;
 
-	key = utilsCalcHash(strrchr(dir->path, '/'));
-	for (temp = scout->cache[key]; temp != NULL; temp = temp->next)
+	len = strlen(dir->path);
+	for (i = 0; i < 3 && len > 0; i++, len--);
+	hash = utilsCalcHash(&dir->path[len]);
+	
+	for (temp = scout->cache[hash]; temp != NULL; temp = temp->next)
 	{
 		if (strcmp(dir->path, temp->path) == 0)
 		{
-			if ((dir->selentry = scoutFindEntry(dir, temp->sel)) < 0)
-				dir->selentry = 0;
-			//do the marked shit here;
+			if (temp->sel != NULL)
+				if ((dir->selentry = scoutFindEntry(dir, temp->sel)) == ERR)
+					dir->selentry = 0;
+			
+			if (temp->marked != NULL)
+				for (i = 0; i < temp->markedcount; i++)
+					if ((j = scoutFindEntry(dir, temp->marked[i])) != ERR)
+						dir->entries[j]->ismrk = 1;
+
 			return OK;
 		}
 	}
@@ -220,27 +231,32 @@ int scoutCacheSearch(SDIR *dir)
 
 int scoutCacheDir(SDIR *dir)
 {
-	int i = 0;
+	int i;
+	int len;
 	CACH *temp;
-	unsigned int key;
+	unsigned int hash;
 
 	if (dir->entries == NULL)
 		return OK;
 
-	key = utilsCalcHash(strrchr(dir->path, '/'));
-	temp = scout->cache[key];
+	len = strlen(dir->path);
+	for (i = 0; i < 3 && len > 0; i++, len--);
+	hash = utilsCalcHash(&dir->path[len]);
+	temp = scout->cache[hash];
 
 	while (temp != NULL)
 	{
 		if (strcmp(dir->path, temp->path) == OK)
 		{
 			if (temp->marked != NULL)
-				while (i < temp->markedcount)
-					free(temp->marked[i++]);
+				for (i = 0; i < temp->markedcount; i++)
+					free(temp->marked[i]);
+
 			free(temp->sel);
 			temp->sel = NULL;
 			free(temp->marked);
 			temp->marked = NULL;
+			temp->markedcount = 0;
 			break;
 		}
 		temp = temp->next;
@@ -255,8 +271,8 @@ int scoutCacheDir(SDIR *dir)
 			return ERR;
 
 		strcpy(temp->path, dir->path);
-		temp->next = scout->cache[key];
-		scout->cache[key] = temp;
+		temp->next = scout->cache[hash];
+		scout->cache[hash] = temp;
 	}
 
 	if (dir->selentry != 0)
@@ -269,7 +285,7 @@ int scoutCacheDir(SDIR *dir)
 
 	for (i = 0; i < dir->entrycount; i++)
 	{
-		if (dir->entries[i]->issel)
+		if (dir->entries[i]->ismrk)
 		{
 			if ((temp->marked = realloc(temp->marked, sizeof(char *) * (temp->markedcount + 1))) == NULL)
 				return ERR;
@@ -283,9 +299,9 @@ int scoutCacheDir(SDIR *dir)
 	
 	if (temp->sel == NULL && temp->marked == NULL)
 	{
-		temp = scout->cache[key];
+		temp = scout->cache[hash];
 		if (strcmp(dir->path, temp->path) == 0)
-			scout->cache[key] = temp->next;
+			scout->cache[hash] = temp->next;
 		else
 		{
 			while (temp->next != NULL)
@@ -923,6 +939,15 @@ int scoutLoadPREV(int mode)
 	return OK;
 }
 
+int scoutMarkEntry(ENTR **entries, int selentry)
+{
+	if (entries == NULL)
+		return ERR;
+
+	entries[selentry]->ismrk = !entries[selentry]->ismrk;
+	return OK;
+}
+
 int scoutMove(int direction)
 {
 	SDIR *buf;
@@ -930,10 +955,10 @@ int scoutMove(int direction)
 	{
 		case TOP:
 			if (scout->dir[CURR]->entries == NULL)
-				return OK;
+				return ERR;
 
 			if (scout->dir[CURR]->selentry == 0)
-				return OK;
+				return ERR;
 
 			buf = scout->dir[NEXT];
 
@@ -946,10 +971,10 @@ int scoutMove(int direction)
 
 		case BOT:
 			if (scout->dir[CURR]->entries == NULL)
-				return OK;
+				return ERR;
 
 			if (scout->dir[CURR]->selentry == scout->dir[CURR]->entrycount - 1)
-				return OK;
+				return ERR;
 
 			buf = scout->dir[NEXT];
 
@@ -963,10 +988,10 @@ int scoutMove(int direction)
 
 		case UP:
 			if (scout->dir[CURR]->entries == NULL)
-				return OK;
+				return ERR;
 
 			if (scout->dir[CURR]->selentry == 0)
-				return OK;
+				return ERR;
 
 			buf = scout->dir[NEXT];
 
@@ -983,10 +1008,10 @@ int scoutMove(int direction)
 
 		case DOWN:
 			if (scout->dir[CURR]->entries == NULL)
-				return OK;
+				return ERR;
 
 			if (scout->dir[CURR]->selentry == scout->dir[CURR]->entrycount - 1)
-				return OK;
+				return ERR;
 
 			buf = scout->dir[NEXT]; 
 
@@ -1003,7 +1028,7 @@ int scoutMove(int direction)
 
 		case LEFT:
 			if (scout->dir[CURR]->path[1] == '\0')
-				return OK;
+				return ERR;
 
 			buf = scout->dir[NEXT];
 
@@ -1022,13 +1047,13 @@ int scoutMove(int direction)
 
 		case RIGHT:
 			if (scout->dir[CURR]->entries == NULL)
-				return OK;
+				return ERR;
 
 			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->type != CP_DIRECTORY)
-				return OK;
+				return ERR;
 
 			if (scout->dir[CURR]->entries[scout->dir[CURR]->selentry]->isatu != OK)
-				return OK;
+				return ERR;
 
 			buf = scout->dir[PREV];
 
@@ -1056,18 +1081,24 @@ int scoutMove(int direction)
 	return OK;
 }
 
-int scoutPrepareString(ENTR *entry, char *str, int len)
+int scoutPrepareString(ENTR *entry, char *str, int len, int ismrk, int istgd)
 {
-	int res;
 	int i, j;
 	int buflen;
+	int res = 0;
 	int extlen, extanc;
 	int namelen, nameanc;
 	int sizelen, sizeanc;
 	char *extstr = NULL;
 
-	res = 0;
-	str[res++] = ' ';
+	if (istgd)
+		str[res++] = '*';
+	else
+		str[res++] = ' ';
+
+	if (ismrk)
+		str[res++] = ' ';
+
 	str[len--] = '\0';
 	str[len--] = ' ';
 
@@ -1121,7 +1152,7 @@ int scoutPrepareString(ENTR *entry, char *str, int len)
 			}
 		}
 	}
-
+	//curses leaks tons of memory here cause this function needs exorcism!
 	i = res;
 	for (j = 0; j < namelen; j++, i++)
 		str[i] = entry->name[j];
@@ -1163,7 +1194,7 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 		return OK;
 	}
 
-	if ((len = getmaxx(win)) < 3)
+	if ((len = getmaxx(win)) < 4)
 		return ERR;
 
 	if ((string = malloc(sizeof(char *) * len)) == NULL)
@@ -1175,11 +1206,13 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
 	{
 		entry = dir->entries[j];
-		scoutPrepareString(entry, string, len - 1);
+		scoutPrepareString(entry, string, len - 1, entry->ismrk, entry->istgd);
 
 		if (j == dir->selentry)
-			wattron(win, A_REVERSE | A_BOLD);
-		else if (entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
+			wattron(win, A_REVERSE);
+		if (entry->ismrk)
+			wattron(win, A_BOLD);
+		if (entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
 			wattron(win, A_BOLD);
 
 		wattron(win, COLOR_PAIR(entry->type));
@@ -1369,6 +1402,12 @@ int scoutRun(void)
 				scoutMove(RIGHT);
 				break;
 
+			case ' ':
+				scoutMarkEntry(scout->dir[CURR]->entries, scout->dir[CURR]->selentry);
+				if (scoutMove(DOWN) == ERR)
+					scoutLoadCURR(RELOAD);
+				break;
+
 			case 'g':
 				if ((c = wgetch(stdscr)) == 'g')
 					scoutMove(TOP);
@@ -1426,14 +1465,15 @@ int scoutQuit(void)
 	scoutDestroyWindows();
 	free(scout->username);
 
-	i = j = 0;
-	while (i < HSIZE)
+	for (i = 0; i < HSIZE; i++)
 	{
 		temp = scout->cache[i];
 		while (temp != NULL)
 		{
-			while (j < temp->markedcount)
-				free(temp->marked[j]);
+			if (temp->marked != NULL)
+				for (j = 0; j < temp->markedcount; j++)
+					free(temp->marked[j]);
+
 			free(temp->marked);
 			free(temp->path);
 			free(temp->sel);
@@ -1441,9 +1481,7 @@ int scoutQuit(void)
 			buf = temp;
 			temp = temp->next;
 			free(buf);
-			j = 0;
 		}
-		free(scout->cache[i++]);
 	}
 	free(scout);
 
