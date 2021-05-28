@@ -5,7 +5,6 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <signal.h>
-//#include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 #include <pwd.h>
@@ -104,7 +103,7 @@ static int scoutPrintInfo(void);
 static int scoutReadDir(SDIR *);
 static int scoutQuit(void);
 static int scoutSetup(char *);
-static void scoutTermResHandler(int);
+static void scoutSignalHandler(int);
 
 /* variables */
 static int running = 1;
@@ -132,12 +131,8 @@ int scoutAddFile(ENTR **entry, char *path)
 	if (lstat(path, &fstat) != OK)
 		return ERR;
 
-	if ((temp = calloc(1, sizeof(ENTR))) == NULL)
-		return ERR;
-
-	if ((temp->name = malloc(sizeof(char *) * (strlen(path) + 1))) == NULL)
-		return ERR;
-
+	temp = utilsCalloc(1, sizeof(ENTR));
+	temp->name = utilsMalloc(sizeof(char *) * (strlen(path) + 1));
 	strcpy(temp->name, path);
 	scoutGetFileType(temp);
 	*entry = temp;
@@ -250,12 +245,10 @@ int scoutCacheDir(SDIR *dir)
 		{
 			if (temp->marked != NULL)
 				for (i = 0; i < temp->markedcount; i++)
-					free(temp->marked[i]);
+					utilsFree(temp->marked[i]);
 
-			free(temp->sel);
-			temp->sel = NULL;
-			free(temp->marked);
-			temp->marked = NULL;
+			utilsFree(temp->sel);
+			utilsFree(temp->marked);
 			temp->markedcount = 0;
 			break;
 		}
@@ -264,12 +257,8 @@ int scoutCacheDir(SDIR *dir)
 
 	if (temp == NULL)
 	{
-		if ((temp = calloc(1, sizeof(CACH))) == NULL)
-			return ERR;
-
-		if ((temp->path = malloc(sizeof(char *) * (strlen(dir->path) + 1))) == NULL)
-			return ERR;
-
+		temp = utilsCalloc(1, sizeof(CACH));
+		temp->path = utilsMalloc(sizeof(char *) * (strlen(dir->path) + 1));
 		strcpy(temp->path, dir->path);
 		temp->next = scout->cache[hash];
 		scout->cache[hash] = temp;
@@ -277,9 +266,7 @@ int scoutCacheDir(SDIR *dir)
 
 	if (dir->selentry != 0)
 	{
-		if ((temp->sel = malloc(sizeof(char *) * (strlen(dir->entries[dir->selentry]->name) + 1))) == NULL)
-			return ERR;
-
+		temp->sel = utilsMalloc(sizeof(char *) * (strlen(dir->entries[dir->selentry]->name) + 1));
 		strcpy(temp->sel, dir->entries[dir->selentry]->name);
 	}
 
@@ -287,12 +274,8 @@ int scoutCacheDir(SDIR *dir)
 	{
 		if (dir->entries[i]->ismrk)
 		{
-			if ((temp->marked = realloc(temp->marked, sizeof(char *) * (temp->markedcount + 1))) == NULL)
-				return ERR;
-
-			if ((temp->marked[temp->markedcount] = malloc(sizeof(char *) * (strlen(dir->entries[i]->name) + 1))) == NULL)
-				return ERR;
-
+			temp->marked = utilsRealloc(temp->marked, sizeof(char *) * (temp->markedcount + 1));
+			temp->marked[temp->markedcount] = utilsMalloc(sizeof(char *) * (strlen(dir->entries[i]->name) + 1));
 			strcpy(temp->marked[temp->markedcount++], dir->entries[i]->name);
 		}
 	}
@@ -313,8 +296,8 @@ int scoutCacheDir(SDIR *dir)
 			temp->next = temp->next->next;
 			temp = temp->next;
 		}
-		free(temp->path);
-		free(temp);
+		utilsFree(temp->path);
+		utilsFree(temp);
 	}
 
 	return OK;
@@ -466,17 +449,16 @@ int scoutFreeDir(SDIR **pdir)
 	{
 		while (i < dir->entrycount)
 		{
-			//scoutFreeDir(&dir->entries[i]->cache);
-
-			scoutFreeInfo(dir->entries[i]);
-			free(dir->entries[i]->size);
-			free(dir->entries[i]->name);
-			free(dir->entries[i++]);
+			if (i == dir->selentry)
+				scoutFreeInfo(dir->entries[i]);
+			utilsFree(dir->entries[i]->size);
+			utilsFree(dir->entries[i]->name);
+			utilsFree(dir->entries[i++]);
 		}
-		free(dir->entries);
+		utilsFree(dir->entries);
 	}
-	free(dir->path);
-	free(dir);
+	utilsFree(dir->path);
+	utilsFree(dir);
 
 	*pdir = NULL;
 	return OK;
@@ -484,14 +466,10 @@ int scoutFreeDir(SDIR **pdir)
 
 int scoutFreeInfo(ENTR *entry)
 {	
-	free(entry->perms);
-	entry->perms = NULL;
-	free(entry->users);
-	entry->users = NULL;
-	free(entry->dates);
-	entry->dates = NULL;
-	free(entry->lpath);
-	entry->lpath = NULL;
+	utilsFree(entry->perms);
+	utilsFree(entry->users);
+	utilsFree(entry->dates);
+	utilsFree(entry->lpath);
 
 	return OK;
 }
@@ -501,10 +479,7 @@ int scoutFreeDirSize(SDIR *dir)
 	int i;
 
 	for (i = 0; i < dir->entrycount; i++)
-	{
-		free(dir->entries[i]->size);
-		dir->entries[i]->size = NULL;
-	}
+		utilsFree(dir->entries[i]->size);
 
 	return OK;
 }
@@ -589,28 +564,23 @@ int scoutGetFileInfo(ENTR *entry)
 	permsbuf[i++] = fstat.st_mode & S_IXOTH ? 'x' : '-';
 	permsbuf[i] = '\0';
 
-	if ((entry->perms = malloc(sizeof(char *) * (strlen(permsbuf) + 1))) == NULL)
-		return ERR;
+	entry->perms = utilsMalloc(sizeof(char *) * (strlen(permsbuf) + 1));
 	strcpy(entry->perms, permsbuf);
 
 	if ((pws = getpwuid(fstat.st_uid)) == NULL)
 		return ERR;
-	if ((entry->users = malloc(sizeof(char *) * (strlen(pws->pw_name) + 1))) == NULL)
-		return ERR;
+	entry->users = utilsMalloc(sizeof(char *) * (strlen(pws->pw_name) + 1));
 	strcpy(entry->users, pws->pw_name);
 
 	time = fstat.st_mtime;
 	localtime_r(&time, &stime);
 	strftime(ctimebuf, 18, "%Y-%m-%d %H:%M", &stime);
-	if ((entry->dates = malloc(sizeof(char *) * (strlen(ctimebuf) + 1))) == NULL)
-		return ERR;
+	entry->dates = utilsMalloc(sizeof(char *) * (strlen(ctimebuf) + 1));
 	strcpy(entry->dates, ctimebuf);
 
 	if (entry->issym && truepath[0] != '\0')
 	{
-		if ((entry->lpath = malloc(sizeof(char *) * (strlen(truepath) + 1))) == NULL)
-			return ERR;
-
+		entry->lpath = utilsMalloc(sizeof(char *) * (strlen(truepath) + 1));
 		strcpy(entry->lpath, truepath);
 	}
 	
@@ -633,9 +603,7 @@ int scoutGetFileSize(ENTR *entry)
 	if (lstat(entry->name, &fstat) != OK)
 	{
 		TOTALFAILURE:
-		if ((entry->size = malloc(sizeof(char *) * 2)) == NULL)
-			return ERR;
-
+		entry->size = utilsMalloc(sizeof(char *) * 2);
 		strcpy(entry->size, "?");
 		entry->isatu = ERR;
 		return ERR;		
@@ -705,9 +673,7 @@ int scoutGetFileSize(ENTR *entry)
 			break;
 	}
 
-	if ((entry->size = malloc(sizeof(char *) * (strlen(sizebuf) + 1))) == NULL)
-		return ERR;
-
+	entry->size = utilsMalloc(sizeof(char *) * (strlen(sizebuf) + 1));
 	strcpy(entry->size, sizebuf);
 	return OK;
 }
@@ -855,8 +821,7 @@ int scoutLoadNEXT(int mode)
 	ENTR *selentry;
 
 	if (mode == LOAD)
-		if ((scout->dir[NEXT] = calloc(1, sizeof(SDIR))) == NULL)
-			return ERR;
+		scout->dir[NEXT] = utilsCalloc(1, sizeof(SDIR));
 
 	if (scout->dir[CURR]->entries != NULL)
 		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
@@ -882,14 +847,11 @@ int scoutLoadNEXT(int mode)
 
 	if (mode == LOAD)
 	{
-		if ((scout->dir[NEXT]->path = malloc(sizeof(char *) * (strlen(selentry->name) + 3))) == NULL)
-			return ERR;
-
+		scout->dir[NEXT]->path = utilsMalloc(sizeof(char *) * (strlen(selentry->name) + 3));
 		if (scout->dir[CURR]->path[1] != '\0')
 			sprintf(scout->dir[NEXT]->path, "%s/%s", scout->dir[CURR]->path, selentry->name);
 		else
 			sprintf(scout->dir[NEXT]->path, "/%s", selentry->name);
-
 		scoutReadDir(scout->dir[NEXT]);
 		scoutCacheSearch(scout->dir[NEXT]);
 	}
@@ -904,8 +866,7 @@ int scoutLoadPREV(int mode)
 	char *temp;
 
 	if (mode == LOAD)
-		if ((scout->dir[PREV] = calloc(1, sizeof(SDIR))) == NULL)
-			return ERR;
+		scout->dir[PREV] = utilsCalloc(1, sizeof(SDIR));
 			
 	if (scout->dir[CURR]->path[1] == '\0')
 	{
@@ -919,13 +880,9 @@ int scoutLoadPREV(int mode)
 		while (scout->dir[CURR]->path[++i] != '\0');
 		while (scout->dir[CURR]->path[--i] != '/');
 				
-		if ((scout->dir[PREV]->path = malloc(sizeof(char *) * (i + 2))) == NULL)
-			return ERR;
-
-		/* Ternary operator accounts for "/" directory */
+		scout->dir[PREV]->path = utilsMalloc(sizeof(char *) * (i + 2));
 		strncpy(scout->dir[PREV]->path, scout->dir[CURR]->path, i + 1);
 		scout->dir[PREV]->path[i ? i : 1] = '\0';
-
 		scoutReadDir(scout->dir[PREV]);
 
 		if (scoutCacheSearch(scout->dir[PREV]) != OK)
@@ -1197,9 +1154,7 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	if ((len = getmaxx(win)) < 4)
 		return ERR;
 
-	if ((string = malloc(sizeof(char *) * len)) == NULL)
-		return ERR;
-
+	string = utilsMalloc(sizeof(char *) * len);
 	scoutPrintListPrep(dir);
 
 	wclear(win);
@@ -1220,7 +1175,7 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 		wattrset(win, A_NORMAL);
 	}
 	wrefresh(win);
-	free(string);
+	utilsFree(string);
 
 	return OK;
 }
@@ -1359,9 +1314,7 @@ int scoutReadDir(SDIR *dir)
 		if (scoutAddFile(&entry, d->d_name) != OK)
 			continue; // error to log!
 
-		if ((dir->entries = realloc(dir->entries, sizeof(ENTR *) * (dir->entrycount + 1))) == NULL)
-			return ERR;
-
+		dir->entries = utilsRealloc(dir->entries, sizeof(ENTR *) * (dir->entrycount + 1));
 		dir->entries[dir->entrycount++] = entry;
 	}
 
@@ -1463,27 +1416,26 @@ int scoutQuit(void)
 	scoutFreeDir(&scout->dir[CURR]);
 	scoutFreeDir(&scout->dir[NEXT]);
 	scoutDestroyWindows();
-	free(scout->username);
 
 	for (i = 0; i < HSIZE; i++)
 	{
 		temp = scout->cache[i];
 		while (temp != NULL)
 		{
+			buf = temp;
 			if (temp->marked != NULL)
 				for (j = 0; j < temp->markedcount; j++)
-					free(temp->marked[j]);
+					utilsFree(temp->marked[j]);
 
-			free(temp->marked);
-			free(temp->path);
-			free(temp->sel);
-
-			buf = temp;
+			utilsFree(temp->marked);
+			utilsFree(temp->path);
+			utilsFree(temp->sel);
 			temp = temp->next;
-			free(buf);
+			utilsFree(buf);
 		}
 	}
-	free(scout);
+	utilsFree(scout->username);
+	utilsFree(scout);
 
 	return OK;
 }
@@ -1497,20 +1449,15 @@ int scoutSetup(char *path)
 	if (realpath(path, truepath) == NULL)
 		return ERR;
 
-	if ((scout = calloc(1, sizeof(struct mainstruct))) == NULL)
-		return ERR;
-
-	if ((scout->dir[CURR] = calloc(1, sizeof(SDIR))) == NULL)
-		return ERR;
-	
-	if ((scout->dir[CURR]->path = malloc(sizeof(char *) * (strlen(truepath) + 1))) == NULL)
-		return ERR;
+	signal(SIGWINCH, scoutSignalHandler);
+	scout = utilsCalloc(1, sizeof(struct mainstruct));
+	scout->dir[CURR] = utilsCalloc(1, sizeof(SDIR));
+	scout->dir[CURR]->path = utilsMalloc(sizeof(char *) * (strlen(truepath) + 1));
 	strcpy(scout->dir[CURR]->path, truepath);
 
 	pw = getpwuid(geteuid());
 	gethostname(hostname, sizeof(hostname));
-	if ((scout->username = malloc(sizeof(char *) * (strlen(pw->pw_name) + strlen(hostname) + 2))) == NULL)
-		return ERR;
+	scout->username = utilsMalloc(sizeof(char *) * (strlen(pw->pw_name) + strlen(hostname) + 2));
 	sprintf(scout->username, "%s@%s", pw->pw_name, hostname);
 
 	scoutInitializeCurses();
@@ -1524,7 +1471,7 @@ int scoutSetup(char *path)
 	return OK;
 }
 
-void scoutTermResHandler(int null)
+void scoutSignalHandler(int sigval)
 {
 	int i;
 
@@ -1561,10 +1508,10 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Error: invalid argument(s), try -h\n");
 		exit(EXIT_FAILURE);
 	}
-	
-	signal(SIGWINCH, scoutTermResHandler);
 
 	scoutRun();
 
 	scoutQuit();
+
+	exit(EXIT_SUCCESS);
 }
