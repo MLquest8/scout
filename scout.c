@@ -31,13 +31,13 @@ enum
 
 	/* color pairings for everything else */
 	CP_ERROR = 99,
-	CP_TOPBARUSER,
-	CP_TOPBARPATH,
-	CP_TOPBARFILE,
-	CP_BOTBARPERM,
-	CP_BOTBARUSER,
-	CP_BOTBARDATE,
-	CP_BOTBARLINK,
+	CP_HEADERUSER,
+	CP_HEADERPATH,
+	CP_HEADERFILE,
+	CP_FOOTERPERM,
+	CP_FOOTERUSER,
+	CP_FOOTERDATE,
+	CP_FOOTERLINK,
 };
 
 /* structs */
@@ -96,7 +96,7 @@ static int scoutLoadNEXT(int);
 static int scoutLoadPREV(int);
 static int scoutMarkEntry(ENTR **, int );
 static int scoutMove(int);
-static int scoutPrepareString(ENTR *, char *, int, int, int);
+static int scoutPrintStringizeEntry(ENTR *, char *, int, int, int);
 static int scoutPrintList(SDIR *, WINDOW *);
 static int scoutPrintListPrep(SDIR *);
 static int scoutPrintInfo(void);
@@ -1038,99 +1038,99 @@ int scoutMove(int direction)
 	return OK;
 }
 
-int scoutPrepareString(ENTR *entry, char *str, int len, int ismrk, int istgd)
+int scoutPrintStringizeEntry(ENTR *entry, char *str, int len, int ismrk, int istgd)
 {
-	int i, j;
-	int buflen;
-	int res = 0;
-	int extlen, extanc;
-	int namelen, nameanc;
-	int sizelen, sizeanc;
-	char *extstr = NULL;
+	char *extstr;
+	int buf, res, loss;
+	int extlen, namelen, sizelen;
 
-	if (istgd)
-		str[res++] = '*';
+	str[--len] = '\0';
+	res = loss = extlen = sizelen = 0;
+
+	if (res < len)
+		str[res++] = istgd ? '*' : ' ';
 	else
-		str[res++] = ' ';
+		return ERR;
 
-	if (ismrk)
-		str[res++] = ' ';
+	if (res < len)
+	{
+		if (ismrk)
+			str[res++] = ' ';
+	}
+	else
+		return ERR;
 
-	str[len--] = '\0';
-	str[len--] = ' ';
-
+	if (res < len)
+		str[--len] = ' ';
+	else
+		return ERR;
+	
 	if (entry->size != NULL)
-		sizeanc = sizelen = strlen(entry->size);
-	else
-		sizeanc = sizelen = 0;
-
-	if (entry->name[0] != '.' && (extstr = strrchr(entry->name, '.')) != NULL)
-		extanc = extlen = strlen(extstr);
-	else
-		extanc = extlen = 0;
-	
-	nameanc = namelen = strlen(entry->name) - extlen;
-	
-	buflen = len - namelen - extlen - sizelen - res;
-	
-	while (buflen < 0)
 	{
-		if (namelen <= 0)
-			break;
-		++buflen;
-		--namelen;
-	}
-	while (buflen < 0)
-	{
-		if (extlen <= 0)
-			break;
-		++buflen;
-		--extlen;
-	}
-	if (buflen < 0)
-	{
-		buflen += sizelen;
-		sizelen = 0;
-		while (buflen > 0)
+		sizelen = strlen(entry->size);
+		if (len - sizelen - res - 2 > 0)
 		{
-			if (extanc != 0)
+			while (sizelen > 0)
+				str[--len] = entry->size[--sizelen];
+			str[--len] = ' ';
+		}
+	}
+
+	namelen = strlen(entry->name);
+	if ((buf = len - res - namelen) > 0)
+		while (buf-- > 0)
+			str[--len] = ' ';
+
+	
+	if ((extstr = strrchr(entry->name, '.')) != NULL && (extstr - entry->name) > 0)
+	{
+		extlen = strlen(extstr);
+		namelen -= extlen;
+		while (extlen > 0)
+		{
+			if (len - extlen - res - 3 >= 0)
 			{
-				if (extlen == extanc)
-					break;
-				--buflen;
-				++extlen;
+				if (loss)
+				{
+					str[--len] = '~';
+					--extlen;
+					loss = 0;
+				}
+				while (extlen > 0)
+					str[--len] = extstr[--extlen];
+				break;
 			}
 			else
 			{
-				if (namelen == nameanc)
-					break;
-				--buflen;
-				++namelen;
+				--extlen;
+				++loss;
 			}
 		}
 	}
-	//curses leaks tons of memory here cause this function needs exorcism!
-	i = res;
-	for (j = 0; j < namelen; j++, i++)
-		str[i] = entry->name[j];
-	if (nameanc != namelen)
-		str[i++] = '~';
 
-	if (extstr != NULL)
+	if (len - res - 1 < 0)
+		return ERR;
+
+	while (namelen > 0)
 	{
-		for (j = 0; j < extlen; j++, i++)
-			str[i] = extstr[j];
-		if (extanc != extlen)
-			str[i++] = '~';
+		if (len - res - namelen >= 0)
+		{
+			if (loss)
+			{
+				str[--len] = '~';
+				--namelen;
+				loss = 0;
+			}
+			while (namelen > 0)
+				str[--len] = entry->name[--namelen];
+			break;
+		}
+		else
+		{
+			--namelen;
+			++loss;
+		}
 	}
-
-	if (buflen > 0)
-		for (j = 0; j <= buflen; j++, i++)
-			str[i] = ' ';
-
-	if (entry->size != NULL && sizelen == sizeanc)
-		for (j = 0; j < sizelen; j++, i++)
-			str[i] = entry->size[j];
 
 	return OK;
 }
@@ -1151,9 +1151,8 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 		return OK;
 	}
 
-	if ((len = getmaxx(win)) < 4)
+	if ((len = getmaxx(win)) <= 0)
 		return ERR;
-
 	string = utilsMalloc(sizeof(char *) * len);
 	scoutPrintListPrep(dir);
 
@@ -1161,13 +1160,11 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
 	{
 		entry = dir->entries[j];
-		scoutPrepareString(entry, string, len - 1, entry->ismrk, entry->istgd);
+		scoutPrintStringizeEntry(entry, string, len, entry->ismrk, entry->istgd);
 
 		if (j == dir->selentry)
 			wattron(win, A_REVERSE);
-		if (entry->ismrk)
-			wattron(win, A_BOLD);
-		if (entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
+		if (entry->ismrk || entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
 			wattron(win, A_BOLD);
 
 		wattron(win, COLOR_PAIR(entry->type));
@@ -1229,64 +1226,52 @@ int scoutPrintInfo(void)
 	else
 		selentry = NULL;
 
-	/* Top bar stuff */
+	/* Header */
 	wmove(stdscr, 0, 0);
 	wattron(stdscr, A_BOLD);
-	wattron(stdscr, COLOR_PAIR(CP_TOPBARUSER));
-	printw(scout->username);
-	waddch(stdscr, ' ');
-	wattroff(stdscr, COLOR_PAIR(CP_TOPBARUSER));
-	wattron(stdscr, COLOR_PAIR(CP_TOPBARPATH));
-	printw(scout->dir[CURR]->path);
-	if (scout->dir[CURR]->path[1] != '\0')
-		waddch(stdscr, '/');
-	wattroff(stdscr, COLOR_PAIR(CP_TOPBARPATH));
+	wattron(stdscr, COLOR_PAIR(CP_HEADERUSER));
+	wprintw(stdscr, "%s ", scout->username);
+	wattroff(stdscr, COLOR_PAIR(CP_HEADERUSER));
+	wattron(stdscr, COLOR_PAIR(CP_HEADERPATH));
+	wprintw(stdscr, scout->dir[CURR]->path[1] != '\0' ? "%s/" : "%s", scout->dir[CURR]->path);
+	wattroff(stdscr, COLOR_PAIR(CP_HEADERPATH));
 	if (selentry != NULL)
 	{
-		wattron(stdscr, COLOR_PAIR(CP_TOPBARFILE));
+		wattron(stdscr, COLOR_PAIR(CP_HEADERFILE));
 		printw(selentry->name);
-		wattroff(stdscr, COLOR_PAIR(CP_TOPBARFILE));
+		wattroff(stdscr, COLOR_PAIR(CP_HEADERFILE));
 	}
-	waddch(stdscr, '\n');
 	wattroff(stdscr, A_BOLD);
 
-	/* Bottom bar stuff */
+	/* Footer */
 	wmove(stdscr, LINES - 1, 0);
 	if (selentry != NULL 
 	&& scoutGetFileInfo(selentry) != ERR)
 	{
-		wattron(stdscr, COLOR_PAIR(CP_BOTBARPERM));
-		wprintw(stdscr, selentry->perms);
-		wattroff(stdscr, COLOR_PAIR(CP_BOTBARPERM));
-		waddch(stdscr, ' ');
-		wattron(stdscr, COLOR_PAIR(CP_BOTBARUSER));
-		wprintw(stdscr, selentry->users);
-		wattroff(stdscr, COLOR_PAIR(CP_BOTBARUSER));
-		waddch(stdscr, ' ');
-		wattron(stdscr, COLOR_PAIR(CP_BOTBARDATE));
-		wprintw(stdscr, selentry->dates);
-		wattroff(stdscr, COLOR_PAIR(CP_BOTBARDATE));
-		waddch(stdscr, ' ');
+		wattron(stdscr, COLOR_PAIR(CP_FOOTERPERM));
+		wprintw(stdscr, "%s ", selentry->perms);
+		wattroff(stdscr, COLOR_PAIR(CP_FOOTERPERM));
+		wattron(stdscr, COLOR_PAIR(CP_FOOTERUSER));
+		wprintw(stdscr, "%s ", selentry->users);
+		wattroff(stdscr, COLOR_PAIR(CP_FOOTERUSER));
+		wattron(stdscr, COLOR_PAIR(CP_FOOTERDATE));
+		wprintw(stdscr, "%s ", selentry->dates);
+		wattroff(stdscr, COLOR_PAIR(CP_FOOTERDATE));
 		if (selentry->issym)
 		{
-			wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-			wprintw(stdscr, "-> ", selentry->lpath);
-			wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
 			if (selentry->lpath != NULL)
 			{
-				wattron(stdscr, COLOR_PAIR(CP_BOTBARLINK));
-				wprintw(stdscr, selentry->lpath);
-				wattroff(stdscr, COLOR_PAIR(CP_BOTBARLINK));
+				wattron(stdscr, COLOR_PAIR(CP_FOOTERLINK));
+				wprintw(stdscr, "-> %s", selentry->lpath);
+				wattroff(stdscr, COLOR_PAIR(CP_FOOTERLINK));
 			}
 			else
 			{
 				wattron(stdscr, COLOR_PAIR(CP_ERROR));
-				wprintw(stdscr, errorSymBroken);
+				wprintw(stdscr, "-> %s", errorSymBroken);
 				wattroff(stdscr, COLOR_PAIR(CP_ERROR));
 			}
-			
 		}
-		waddch(stdscr, '\n');
 		scoutFreeInfo(selentry);
 	}
 
@@ -1449,7 +1434,6 @@ int scoutSetup(char *path)
 	if (realpath(path, truepath) == NULL)
 		return ERR;
 
-	signal(SIGWINCH, scoutSignalHandler);
 	scout = utilsCalloc(1, sizeof(struct mainstruct));
 	scout->dir[CURR] = utilsCalloc(1, sizeof(SDIR));
 	scout->dir[CURR]->path = utilsMalloc(sizeof(char *) * (strlen(truepath) + 1));
@@ -1509,9 +1493,9 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+	signal(SIGWINCH, scoutSignalHandler);
+
 	scoutRun();
 
-	scoutQuit();
-
-	exit(EXIT_SUCCESS);
+	exit(scoutQuit());
 }
