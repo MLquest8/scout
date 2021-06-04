@@ -108,10 +108,11 @@ static struct mainstruct
 	int lines;
 	int topthrsh;
 	int botthrsh;
+	char *username;
+	char *hostname;
 
 	SDIR *dir[3];
 	WINDOW *win[3];
-	char *username;
 	CACH *cache[HSIZE];
 } *scout;
 
@@ -1032,7 +1033,7 @@ int scoutPrintInfo(void)
 	wmove(stdscr, 0, 0);
 	wattron(stdscr, A_BOLD);
 	wattron(stdscr, COLOR_PAIR(CP_HEADERUSER));
-	wprintw(stdscr, "%s ", scout->username);
+	wprintw(stdscr, "%s@%s ", scout->username, scout->hostname);
 	wattroff(stdscr, COLOR_PAIR(CP_HEADERUSER));
 	wattron(stdscr, COLOR_PAIR(CP_HEADERPATH));
 	wprintw(stdscr, scout->dir[CURR]->path[1] != '\0' ? "%s/" : "%s", scout->dir[CURR]->path);
@@ -1258,12 +1259,32 @@ int scoutPrintStringizeEntry(ENTR *entry, char *str, int len, int ismrk, int ist
 
 int scoutReadDir(SDIR *dir)
 {
+	int i;
 	DIR *pdir;
+	ENTR dummy;
 	ENTR *entry;
+	int select = 0;
 	struct dirent *d;
 
 	if ((pdir = opendir(dir->path)) == NULL)
-		return ERR;
+	{
+		i = 0;
+		while (dir->path[++i] != '\0');
+		while (dir->path[--i] != '/');
+
+		dummy.type = CP_DEFAULT;
+		dummy.name = utilsMalloc(sizeof(char *) * strlen(&dir->path[i]));
+		strcpy(dummy.name, &dir->path[i + 1]);
+		dir->path[i ? i : 1] = '\0';
+
+		if ((pdir = opendir(dir->path)) == NULL)
+		{
+			utilsFree(dummy.name);
+			return ERR;
+		}
+		
+		select = !select;
+	}
 
 	chdir(dir->path);
 	
@@ -1282,6 +1303,12 @@ int scoutReadDir(SDIR *dir)
 
 	if (dir->entries != NULL)
 		qsort(dir->entries, dir->entrycount, sizeof(ENTR *), scoutCompareEntries);
+
+	if (select)
+	{
+		dir->selentry = scoutFindEntry(dir, &dummy);
+		utilsFree(dummy.name);
+	}
 
 	if (dir != scout->dir[CURR])
 		chdir(scout->dir[CURR]->path);
@@ -1397,6 +1424,7 @@ int scoutQuit(void)
 		}
 	}
 	utilsFree(scout->username);
+	utilsFree(scout->hostname);
 	utilsFree(scout);
 
 	return OK;
@@ -1418,8 +1446,10 @@ int scoutSetup(char *path)
 
 	pw = getpwuid(geteuid());
 	gethostname(hostname, sizeof(hostname));
-	scout->username = utilsMalloc(sizeof(char *) * (strlen(pw->pw_name) + strlen(hostname) + 2));
-	sprintf(scout->username, "%s@%s", pw->pw_name, hostname);
+	scout->username = utilsMalloc(sizeof(char *) * (strlen(pw->pw_name) + 1));
+	strcpy(scout->username, pw->pw_name);
+	scout->hostname = utilsMalloc(sizeof(char *) * (strlen(hostname) + 1));
+	strcpy(scout->hostname, hostname);
 
 	scoutInitializeCurses();
 	scoutBuildWindows();
