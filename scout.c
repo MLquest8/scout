@@ -82,24 +82,19 @@ static int scoutCacheDir(SDIR *);
 static int scoutCacheSearch(SDIR *);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
-static int scoutFindEntry(SDIR *, char *);
+static int scoutFindEntry(SDIR *, ENTR *);
 static int scoutFreeDir(SDIR **);
-static int scoutFreeInfo(ENTR *);
-static int scoutFreeDirSize(SDIR *);
-static int scoutGetDirSize(SDIR *);
 static int scoutGetFileInfo(ENTR *);
 static int scoutGetFileSize(ENTR *);
 static int scoutGetFileType(ENTR *);
 static int scoutInitializeCurses(void);
-static int scoutLoadCURR(int);
-static int scoutLoadNEXT(int);
-static int scoutLoadPREV(int);
+static int scoutLoadDir(int, int);
 static int scoutMarkEntry(ENTR **, int );
 static int scoutMove(int);
-static int scoutPrintStringizeEntry(ENTR *, char *, int, int, int);
-static int scoutPrintList(SDIR *, WINDOW *);
-static int scoutPrintListPrep(SDIR *);
 static int scoutPrintInfo(void);
+static int scoutPrintList(SDIR *, WINDOW *);
+static int scoutPrintRewindList(SDIR *);
+static int scoutPrintStringizeEntry(ENTR *, char *, int, int, int);
 static int scoutReadDir(SDIR *);
 static int scoutQuit(void);
 static int scoutSetup(char *);
@@ -394,22 +389,16 @@ int scoutCompareEntries(const void *A, const void *B)
 	return 1;
 }
 
-int scoutFindEntry(SDIR *dir, char *name)
+int scoutFindEntry(SDIR *dir, ENTR *entry)
 {
-	ENTR dummy;
 	int loop = 0;
 	int i, j, k, l;
-	ENTR *dummyptr;
-	
-	dummyptr = &dummy;
-	dummy.type = CP_DIRECTORY;
-	dummy.name = name;
-LOOP:
+
 	i = 0;
 	j = dir->entrycount;
 	l = (j - i) / 2;
 	
-	while ((k = scoutCompareEntries(&dummyptr, &dir->entries[l])) != 0)
+	while ((k = scoutCompareEntries(&entry, &dir->entries[l])) != 0)
 	{
 		if (k < 0)
 		{
@@ -423,15 +412,7 @@ LOOP:
 		}
 
 		if (loop++ > dir->entrycount)
-		{
-			if (dummy.type == CP_DIRECTORY)
-			{
-				loop = 0;
-				dummy.type = CP_DEFAULT;
-				goto LOOP;
-			}
 			return ERR;
-		}
 	}
 
 	return l;
@@ -449,8 +430,6 @@ int scoutFreeDir(SDIR **pdir)
 	{
 		while (i < dir->entrycount)
 		{
-			if (i == dir->selentry)
-				scoutFreeInfo(dir->entries[i]);
 			utilsFree(dir->entries[i]->size);
 			utilsFree(dir->entries[i]->name);
 			utilsFree(dir->entries[i++]);
@@ -461,36 +440,6 @@ int scoutFreeDir(SDIR **pdir)
 	utilsFree(dir);
 
 	*pdir = NULL;
-	return OK;
-}
-
-int scoutFreeInfo(ENTR *entry)
-{	
-	utilsFree(entry->perms);
-	utilsFree(entry->users);
-	utilsFree(entry->dates);
-	utilsFree(entry->lpath);
-
-	return OK;
-}
-
-int scoutFreeDirSize(SDIR *dir)
-{
-	int i;
-
-	for (i = 0; i < dir->entrycount; i++)
-		utilsFree(dir->entries[i]->size);
-
-	return OK;
-}
-
-int scoutGetDirSize(SDIR *dir)
-{
-	int i;
-
-	for (i = 0; i < dir->entrycount; i++)
-		scoutGetFileSize(dir->entries[i]);
-
 	return OK;
 }
 
@@ -804,96 +753,102 @@ int scoutInitializeCurses(void)
 	return OK;
 }
 
-int scoutLoadCURR(int mode)
+int scoutLoadDir(int dir, int mode)
 {
-	if (mode == LOAD)
-	{
-		scoutReadDir(scout->dir[CURR]);
-		scoutGetDirSize(scout->dir[CURR]);
-	}
-
-	scoutPrintList(scout->dir[CURR], scout->win[CURR]);
-	return OK;
-}
-
-int scoutLoadNEXT(int mode)
-{
+	int i;
+	ENTR dummy;
 	ENTR *selentry;
 
-	if (mode == LOAD)
-		scout->dir[NEXT] = utilsCalloc(1, sizeof(SDIR));
-
-	if (scout->dir[CURR]->entries != NULL)
-		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
-	else
-		selentry = NULL;
-
-	if (selentry == NULL || selentry->type != CP_DIRECTORY)
+	switch (dir)
 	{
-		wclear(scout->win[NEXT]);
-		wrefresh(scout->win[NEXT]);
-		return OK;
+		case CURR:
+			if (mode == LOAD)
+			{
+				scoutReadDir(scout->dir[CURR]);
+				for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+					scoutGetFileSize(scout->dir[CURR]->entries[i]);
+			}
+
+			scoutPrintList(scout->dir[CURR], scout->win[CURR]);
+			return OK;
+
+		case NEXT:
+			if (mode == LOAD)
+				scout->dir[NEXT] = utilsCalloc(1, sizeof(SDIR));
+
+			if (scout->dir[CURR]->entries != NULL)
+				selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
+			else
+				selentry = NULL;
+
+			if (selentry == NULL || selentry->type != CP_DIRECTORY)
+			{
+				wclear(scout->win[NEXT]);
+				wrefresh(scout->win[NEXT]);
+				return OK;
+			}
+
+			if (selentry->isatu != OK)
+			{
+				wclear(scout->win[NEXT]);
+				wattron(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
+				mvwprintw(scout->win[NEXT], 0, 0, errorNoAccess);
+				wattrset(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
+				wrefresh(scout->win[NEXT]);
+				return OK;
+			}
+
+			if (mode == LOAD)
+			{
+				scout->dir[NEXT]->path = utilsMalloc(sizeof(char *) * (strlen(selentry->name) + 3));
+				if (scout->dir[CURR]->path[1] != '\0')
+					sprintf(scout->dir[NEXT]->path, "%s/%s", scout->dir[CURR]->path, selentry->name);
+				else
+					sprintf(scout->dir[NEXT]->path, "/%s", selentry->name);
+				scoutReadDir(scout->dir[NEXT]);
+				scoutCacheSearch(scout->dir[NEXT]);
+			}
+
+			scoutPrintList(scout->dir[NEXT], scout->win[NEXT]);
+			return OK;
+
+		case PREV:
+			if (mode == LOAD)
+				scout->dir[PREV] = utilsCalloc(1, sizeof(SDIR));
+					
+			if (scout->dir[CURR]->path[1] == '\0')
+			{
+				wclear(scout->win[PREV]);
+				wrefresh(scout->win[PREV]);
+				return OK;
+			}
+
+			if (mode == LOAD)
+			{
+				i = 0;
+				while (scout->dir[CURR]->path[++i] != '\0');
+				while (scout->dir[CURR]->path[--i] != '/');
+						
+				scout->dir[PREV]->path = utilsMalloc(sizeof(char *) * (i + 2));
+				strncpy(scout->dir[PREV]->path, scout->dir[CURR]->path, i + 1);
+				scout->dir[PREV]->path[i ? i : 1] = '\0';
+				scoutReadDir(scout->dir[PREV]);
+
+				if (scoutCacheSearch(scout->dir[PREV]) != OK)
+				{
+					dummy.type = CP_DIRECTORY;
+					dummy.name = strrchr(scout->dir[CURR]->path, '/') + 1;
+					scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], &dummy);
+				}
+			}
+
+			scoutPrintList(scout->dir[PREV], scout->win[PREV]);
+			return OK;
+		
+		default:
+			break;
 	}
 
-	if (selentry->isatu != OK)
-	{
-		wclear(scout->win[NEXT]);
-		wattron(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
-		mvwprintw(scout->win[NEXT], 0, 0, errorNoAccess);
-		wattrset(scout->win[NEXT], COLOR_PAIR(CP_ERROR));
-		wrefresh(scout->win[NEXT]);
-		return OK;
-	}
-
-	if (mode == LOAD)
-	{
-		scout->dir[NEXT]->path = utilsMalloc(sizeof(char *) * (strlen(selentry->name) + 3));
-		if (scout->dir[CURR]->path[1] != '\0')
-			sprintf(scout->dir[NEXT]->path, "%s/%s", scout->dir[CURR]->path, selentry->name);
-		else
-			sprintf(scout->dir[NEXT]->path, "/%s", selentry->name);
-		scoutReadDir(scout->dir[NEXT]);
-		scoutCacheSearch(scout->dir[NEXT]);
-	}
-
-	scoutPrintList(scout->dir[NEXT], scout->win[NEXT]);
-	return OK;
-}
-
-int scoutLoadPREV(int mode)
-{
-	int i = 0;
-	char *temp;
-
-	if (mode == LOAD)
-		scout->dir[PREV] = utilsCalloc(1, sizeof(SDIR));
-			
-	if (scout->dir[CURR]->path[1] == '\0')
-	{
-		wclear(scout->win[PREV]);
-		wrefresh(scout->win[PREV]);
-		return OK;
-	}
-
-	if (mode == LOAD)
-	{
-		while (scout->dir[CURR]->path[++i] != '\0');
-		while (scout->dir[CURR]->path[--i] != '/');
-				
-		scout->dir[PREV]->path = utilsMalloc(sizeof(char *) * (i + 2));
-		strncpy(scout->dir[PREV]->path, scout->dir[CURR]->path, i + 1);
-		scout->dir[PREV]->path[i ? i : 1] = '\0';
-		scoutReadDir(scout->dir[PREV]);
-
-		if (scoutCacheSearch(scout->dir[PREV]) != OK)
-		{
-			temp = strrchr(scout->dir[CURR]->path, '/') + 1;
-			scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], temp);
-		}
-	}
-
-	scoutPrintList(scout->dir[PREV], scout->win[PREV]);
-	return OK;
 }
 
 int scoutMarkEntry(ENTR **entries, int selentry)
@@ -907,6 +862,7 @@ int scoutMarkEntry(ENTR **entries, int selentry)
 
 int scoutMove(int direction)
 {
+	int i;
 	SDIR *buf;
 	switch (direction)
 	{
@@ -921,8 +877,8 @@ int scoutMove(int direction)
 
 			scout->dir[CURR]->firstentry = scout->dir[CURR]->selentry = 0;
 			
-			scoutLoadCURR(RELOAD);
-			scoutLoadNEXT(LOAD);
+			scoutLoadDir(CURR, RELOAD);
+			scoutLoadDir(NEXT, LOAD);
 
 			break;
 
@@ -938,8 +894,8 @@ int scoutMove(int direction)
 			scout->dir[CURR]->selentry = scout->dir[CURR]->entrycount - 1;
 			scout->dir[CURR]->firstentry = 0;
 			
-			scoutLoadCURR(RELOAD);
-			scoutLoadNEXT(LOAD);
+			scoutLoadDir(CURR, RELOAD);
+			scoutLoadDir(NEXT, LOAD);
 
 			break;
 
@@ -958,8 +914,8 @@ int scoutMove(int direction)
 
 			scout->dir[CURR]->selentry--;
 
-			scoutLoadCURR(RELOAD);
-			scoutLoadNEXT(LOAD);
+			scoutLoadDir(CURR, RELOAD);
+			scoutLoadDir(NEXT, LOAD);
 		
 			break;
 
@@ -978,8 +934,8 @@ int scoutMove(int direction)
 
 			scout->dir[CURR]->selentry++;
 
-			scoutLoadCURR(RELOAD);
-			scoutLoadNEXT(LOAD);
+			scoutLoadDir(CURR, RELOAD);
+			scoutLoadDir(NEXT, LOAD);
 			
 			break;
 
@@ -989,16 +945,20 @@ int scoutMove(int direction)
 
 			buf = scout->dir[NEXT];
 
-			scoutFreeDirSize(scout->dir[CURR]);
+			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+				utilsFree(scout->dir[CURR]->entries[i]->size);
+
 			scout->dir[NEXT] = scout->dir[CURR];
 			scout->dir[CURR] = scout->dir[PREV];
 
 			chdir(scout->dir[CURR]->path);
-			scoutGetDirSize(scout->dir[CURR]);
 
-			scoutLoadCURR(RELOAD);
-			scoutLoadNEXT(RELOAD);
-			scoutLoadPREV(LOAD);
+			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+				scoutGetFileSize(scout->dir[CURR]->entries[i]);
+
+			scoutLoadDir(CURR, RELOAD);
+			scoutLoadDir(NEXT, RELOAD);
+			scoutLoadDir(PREV, LOAD);
 
 			break;
 
@@ -1014,16 +974,20 @@ int scoutMove(int direction)
 
 			buf = scout->dir[PREV];
 
-			scoutFreeDirSize(scout->dir[CURR]);
+			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+				utilsFree(scout->dir[CURR]->entries[i]->size);
+
 			scout->dir[PREV] = scout->dir[CURR];
 			scout->dir[CURR] = scout->dir[NEXT];
 
 			chdir(scout->dir[CURR]->path);
-			scoutGetDirSize(scout->dir[CURR]);
 
-			scoutLoadPREV(RELOAD);
-			scoutLoadCURR(RELOAD);
-			scoutLoadNEXT(LOAD);
+			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+				scoutGetFileSize(scout->dir[CURR]->entries[i]);
+
+			scoutLoadDir(PREV, RELOAD);
+			scoutLoadDir(CURR, RELOAD);
+			scoutLoadDir(NEXT, LOAD);
 
 			break;
 
@@ -1034,6 +998,153 @@ int scoutMove(int direction)
 	scoutPrintInfo();
 	scoutCacheDir(buf);
 	scoutFreeDir(&buf);
+
+	return OK;
+}
+
+int scoutPrintInfo(void)
+{
+	ENTR *selentry;
+
+	/* Cleanup */
+	wmove(stdscr, 0, 0);
+	wclrtoeol(stdscr);
+	wmove(stdscr, LINES - 1, 0);
+	wclrtoeol(stdscr);
+	
+	if (scout->dir[CURR]->entries != NULL)
+		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
+	else
+		selentry = NULL;
+
+	/* Header */
+	wmove(stdscr, 0, 0);
+	wattron(stdscr, A_BOLD);
+	wattron(stdscr, COLOR_PAIR(CP_HEADERUSER));
+	wprintw(stdscr, "%s ", scout->username);
+	wattroff(stdscr, COLOR_PAIR(CP_HEADERUSER));
+	wattron(stdscr, COLOR_PAIR(CP_HEADERPATH));
+	wprintw(stdscr, scout->dir[CURR]->path[1] != '\0' ? "%s/" : "%s", scout->dir[CURR]->path);
+	wattroff(stdscr, COLOR_PAIR(CP_HEADERPATH));
+	if (selentry != NULL)
+	{
+		wattron(stdscr, COLOR_PAIR(CP_HEADERFILE));
+		printw(selentry->name);
+		wattroff(stdscr, COLOR_PAIR(CP_HEADERFILE));
+	}
+	wattroff(stdscr, A_BOLD);
+
+	/* Footer */
+	wmove(stdscr, LINES - 1, 0);
+	if (selentry != NULL 
+	&& scoutGetFileInfo(selentry) != ERR)
+	{
+		wattron(stdscr, COLOR_PAIR(CP_FOOTERPERM));
+		wprintw(stdscr, "%s ", selentry->perms);
+		wattroff(stdscr, COLOR_PAIR(CP_FOOTERPERM));
+		wattron(stdscr, COLOR_PAIR(CP_FOOTERUSER));
+		wprintw(stdscr, "%s ", selentry->users);
+		wattroff(stdscr, COLOR_PAIR(CP_FOOTERUSER));
+		wattron(stdscr, COLOR_PAIR(CP_FOOTERDATE));
+		wprintw(stdscr, "%s ", selentry->dates);
+		wattroff(stdscr, COLOR_PAIR(CP_FOOTERDATE));
+		if (selentry->issym)
+		{
+			if (selentry->lpath != NULL)
+			{
+				wattron(stdscr, COLOR_PAIR(CP_FOOTERLINK));
+				wprintw(stdscr, "-> %s", selentry->lpath);
+				wattroff(stdscr, COLOR_PAIR(CP_FOOTERLINK));
+			}
+			else
+			{
+				wattron(stdscr, COLOR_PAIR(CP_ERROR));
+				wprintw(stdscr, "-> %s", errorSymBroken);
+				wattroff(stdscr, COLOR_PAIR(CP_ERROR));
+			}
+		}
+		utilsFree(selentry->perms);
+		utilsFree(selentry->users);
+		utilsFree(selentry->dates);
+		utilsFree(selentry->lpath);
+	}
+
+	wrefresh(stdscr);
+	return OK;
+}
+
+int scoutPrintList(SDIR *dir, WINDOW *win)
+{
+	ENTR *entry;
+	char *string;
+	int i, j, len;
+
+	if (dir->entries == NULL)
+	{
+		wclear(win);
+		wattron(win, COLOR_PAIR(CP_ERROR));
+		mvwprintw(win, 0, 0, errorDirEmpty);
+		wattrset(win, COLOR_PAIR(CP_ERROR));
+		wrefresh(win);
+		return OK;
+	}
+
+	if ((len = getmaxx(win)) <= 0)
+		return ERR;
+	string = utilsMalloc(sizeof(char *) * len);
+	scoutPrintRewindList(dir);
+
+	wclear(win);
+	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
+	{
+		entry = dir->entries[j];
+		scoutPrintStringizeEntry(entry, string, len, entry->ismrk, entry->istgd);
+
+		if (j == dir->selentry)
+			wattron(win, A_REVERSE);
+		if (entry->ismrk || entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
+			wattron(win, A_BOLD);
+
+		wattron(win, COLOR_PAIR(entry->type));
+		mvwprintw(win, i, 0, string);
+		wattrset(win, A_NORMAL);
+	}
+	wrefresh(win);
+	utilsFree(string);
+
+	return OK;
+}
+
+int scoutPrintRewindList(SDIR *dir)
+{
+	int temp1, temp2;
+
+	if (dir->firstentry != 0)
+		return ERR;
+
+	if (dir->entries == NULL)
+		return ERR;
+
+	if (dir->selentry  >= scout->lines)
+	{
+		temp1 = dir->selentry - scout->lines + 1;
+		temp2 = dir->entrycount - dir->selentry - 1;
+		if (temp2 > scout->topthrsh)
+			dir->firstentry = temp1 + scout->topthrsh;
+		else
+			dir->firstentry = temp1 + temp2;
+	}
+	else if (dir->selentry > scout->botthrsh && dir->entrycount > scout->lines)
+	{
+		temp1 = dir->selentry - scout->botthrsh;
+		temp2 = dir->entrycount - scout->lines;
+		if (temp2 >= temp1)
+			dir->firstentry = temp1;
+		else
+			dir->firstentry = temp2;
+	}
+	else
+		dir->firstentry = 0;
 
 	return OK;
 }
@@ -1135,150 +1246,6 @@ int scoutPrintStringizeEntry(ENTR *entry, char *str, int len, int ismrk, int ist
 	return OK;
 }
 
-int scoutPrintList(SDIR *dir, WINDOW *win)
-{
-	ENTR *entry;
-	char *string;
-	int i, j, len;
-
-	if (dir->entries == NULL)
-	{
-		wclear(win);
-		wattron(win, COLOR_PAIR(CP_ERROR));
-		mvwprintw(win, 0, 0, errorDirEmpty);
-		wattrset(win, COLOR_PAIR(CP_ERROR));
-		wrefresh(win);
-		return OK;
-	}
-
-	if ((len = getmaxx(win)) <= 0)
-		return ERR;
-	string = utilsMalloc(sizeof(char *) * len);
-	scoutPrintListPrep(dir);
-
-	wclear(win);
-	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
-	{
-		entry = dir->entries[j];
-		scoutPrintStringizeEntry(entry, string, len, entry->ismrk, entry->istgd);
-
-		if (j == dir->selentry)
-			wattron(win, A_REVERSE);
-		if (entry->ismrk || entry->type == CP_DIRECTORY || entry->type == CP_EXECUTABLE || entry->type >= 8)
-			wattron(win, A_BOLD);
-
-		wattron(win, COLOR_PAIR(entry->type));
-		mvwprintw(win, i, 0, string);
-		wattrset(win, A_NORMAL);
-	}
-	wrefresh(win);
-	utilsFree(string);
-
-	return OK;
-}
-
-int scoutPrintListPrep(SDIR *dir)
-{
-	int temp1, temp2;
-
-	if (dir->firstentry != 0)
-		return ERR;
-
-	if (dir->entries == NULL)
-		return ERR;
-
-	if (dir->selentry  >= scout->lines)
-	{
-		temp1 = dir->selentry - scout->lines + 1;
-		temp2 = dir->entrycount - dir->selentry - 1;
-		if (temp2 > scout->topthrsh)
-			dir->firstentry = temp1 + scout->topthrsh;
-		else
-			dir->firstentry = temp1 + temp2;
-	}
-	else if (dir->selentry > scout->botthrsh && dir->entrycount > scout->lines)
-	{
-		temp1 = dir->selentry - scout->botthrsh;
-		temp2 = dir->entrycount - scout->lines;
-		if (temp2 >= temp1)
-			dir->firstentry = temp1;
-		else
-			dir->firstentry = temp2;
-	}
-	else
-		dir->firstentry = 0;
-
-	return OK;
-}
-
-int scoutPrintInfo(void)
-{
-	ENTR *selentry;
-
-	/* Cleanup */
-	wmove(stdscr, 0, 0);
-	wclrtoeol(stdscr);
-	wmove(stdscr, LINES - 1, 0);
-	wclrtoeol(stdscr);
-	
-	if (scout->dir[CURR]->entries != NULL)
-		selentry = scout->dir[CURR]->entries[scout->dir[CURR]->selentry];
-	else
-		selentry = NULL;
-
-	/* Header */
-	wmove(stdscr, 0, 0);
-	wattron(stdscr, A_BOLD);
-	wattron(stdscr, COLOR_PAIR(CP_HEADERUSER));
-	wprintw(stdscr, "%s ", scout->username);
-	wattroff(stdscr, COLOR_PAIR(CP_HEADERUSER));
-	wattron(stdscr, COLOR_PAIR(CP_HEADERPATH));
-	wprintw(stdscr, scout->dir[CURR]->path[1] != '\0' ? "%s/" : "%s", scout->dir[CURR]->path);
-	wattroff(stdscr, COLOR_PAIR(CP_HEADERPATH));
-	if (selentry != NULL)
-	{
-		wattron(stdscr, COLOR_PAIR(CP_HEADERFILE));
-		printw(selentry->name);
-		wattroff(stdscr, COLOR_PAIR(CP_HEADERFILE));
-	}
-	wattroff(stdscr, A_BOLD);
-
-	/* Footer */
-	wmove(stdscr, LINES - 1, 0);
-	if (selentry != NULL 
-	&& scoutGetFileInfo(selentry) != ERR)
-	{
-		wattron(stdscr, COLOR_PAIR(CP_FOOTERPERM));
-		wprintw(stdscr, "%s ", selentry->perms);
-		wattroff(stdscr, COLOR_PAIR(CP_FOOTERPERM));
-		wattron(stdscr, COLOR_PAIR(CP_FOOTERUSER));
-		wprintw(stdscr, "%s ", selentry->users);
-		wattroff(stdscr, COLOR_PAIR(CP_FOOTERUSER));
-		wattron(stdscr, COLOR_PAIR(CP_FOOTERDATE));
-		wprintw(stdscr, "%s ", selentry->dates);
-		wattroff(stdscr, COLOR_PAIR(CP_FOOTERDATE));
-		if (selentry->issym)
-		{
-			if (selentry->lpath != NULL)
-			{
-				wattron(stdscr, COLOR_PAIR(CP_FOOTERLINK));
-				wprintw(stdscr, "-> %s", selentry->lpath);
-				wattroff(stdscr, COLOR_PAIR(CP_FOOTERLINK));
-			}
-			else
-			{
-				wattron(stdscr, COLOR_PAIR(CP_ERROR));
-				wprintw(stdscr, "-> %s", errorSymBroken);
-				wattroff(stdscr, COLOR_PAIR(CP_ERROR));
-			}
-		}
-		scoutFreeInfo(selentry);
-	}
-
-	wrefresh(stdscr);
-	return OK;
-}
-
 int scoutReadDir(SDIR *dir)
 {
 	DIR *pdir;
@@ -1343,7 +1310,7 @@ int scoutRun(void)
 			case ' ':
 				scoutMarkEntry(scout->dir[CURR]->entries, scout->dir[CURR]->selentry);
 				if (scoutMove(DOWN) == ERR)
-					scoutLoadCURR(RELOAD);
+					scoutLoadDir(CURR, RELOAD);
 				break;
 
 			case 'g':
@@ -1447,9 +1414,9 @@ int scoutSetup(char *path)
 	scoutInitializeCurses();
 	scoutBuildWindows();
 
-	scoutLoadCURR(LOAD);
-	scoutLoadNEXT(LOAD);
-	scoutLoadPREV(LOAD);
+	scoutLoadDir(CURR, LOAD);
+	scoutLoadDir(NEXT, LOAD);
+	scoutLoadDir(PREV, LOAD);
 	scoutPrintInfo();
 
 	return OK;
@@ -1468,9 +1435,9 @@ void scoutSignalHandler(int sigval)
 		if (scout->dir[i] != NULL)
 			scout->dir[i]->firstentry = 0;
 
-	scoutLoadCURR(RELOAD);
-	scoutLoadNEXT(RELOAD);
-	scoutLoadPREV(RELOAD);
+	scoutLoadDir(CURR, RELOAD);
+	scoutLoadDir(NEXT, RELOAD);
+	scoutLoadDir(PREV, RELOAD);
 }
 
 int main(int argc, char *argv[])
