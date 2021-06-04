@@ -755,7 +755,7 @@ int scoutInitializeCurses(void)
 
 int scoutLoadDir(int dir, int mode)
 {
-	int i;
+	int i, j;
 	ENTR dummy;
 	ENTR *selentry;
 
@@ -763,11 +763,13 @@ int scoutLoadDir(int dir, int mode)
 	{
 		case CURR:
 			if (mode == LOAD)
-			{
 				scoutReadDir(scout->dir[CURR]);
-				for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+
+			scoutPrintRewindList(scout->dir[CURR]);
+
+			for (i = scout->dir[CURR]->firstentry, j = 0; i < scout->dir[CURR]->entrycount && j < scout->lines; i++, j++)
+				if (scout->dir[CURR]->entries[i]->size == NULL)
 					scoutGetFileSize(scout->dir[CURR]->entries[i]);
-			}
 
 			scoutPrintList(scout->dir[CURR], scout->win[CURR]);
 			return OK;
@@ -809,6 +811,7 @@ int scoutLoadDir(int dir, int mode)
 				scoutCacheSearch(scout->dir[NEXT]);
 			}
 
+			scoutPrintRewindList(scout->dir[NEXT]);
 			scoutPrintList(scout->dir[NEXT], scout->win[NEXT]);
 			return OK;
 
@@ -842,13 +845,14 @@ int scoutLoadDir(int dir, int mode)
 				}
 			}
 
+			scoutPrintRewindList(scout->dir[PREV]);
 			scoutPrintList(scout->dir[PREV], scout->win[PREV]);
 			return OK;
 		
 		default:
-			break;
+			return ERR;
 	}
-
+	return ERR;
 }
 
 int scoutMarkEntry(ENTR **entries, int selentry)
@@ -860,11 +864,11 @@ int scoutMarkEntry(ENTR **entries, int selentry)
 	return OK;
 }
 
-int scoutMove(int direction)
+int scoutMove(int dir)
 {
-	int i;
+	int i, j;
 	SDIR *buf;
-	switch (direction)
+	switch (dir)
 	{
 		case TOP:
 			if (scout->dir[CURR]->entries == NULL)
@@ -874,6 +878,9 @@ int scoutMove(int direction)
 				return ERR;
 
 			buf = scout->dir[NEXT];
+
+			for (i = scout->dir[CURR]->firstentry, j = 0; i < scout->dir[CURR]->entrycount && j < scout->lines; i++, j++)
+				utilsFree(scout->dir[CURR]->entries[i]->size);
 
 			scout->dir[CURR]->firstentry = scout->dir[CURR]->selentry = 0;
 			
@@ -891,8 +898,12 @@ int scoutMove(int direction)
 
 			buf = scout->dir[NEXT];
 
-			scout->dir[CURR]->selentry = scout->dir[CURR]->entrycount - 1;
-			scout->dir[CURR]->firstentry = 0;
+			for (i = scout->dir[CURR]->firstentry, j = 0; i < scout->dir[CURR]->entrycount && j < scout->lines; i++, j++)
+				utilsFree(scout->dir[CURR]->entries[i]->size);
+
+			scout->dir[CURR]->firstentry = scout->dir[CURR]->selentry = scout->dir[CURR]->entrycount - 1;
+			for (i = 0; scout->dir[CURR]->firstentry != 0 && i < scout->lines - 1; i++)
+				--scout->dir[CURR]->firstentry;
 			
 			scoutLoadDir(CURR, RELOAD);
 			scoutLoadDir(NEXT, LOAD);
@@ -909,11 +920,16 @@ int scoutMove(int direction)
 			buf = scout->dir[NEXT];
 
 			if (scout->dir[CURR]->selentry - scout->dir[CURR]->firstentry <= scout->topthrsh)
+			{
 				if (scout->dir[CURR]->firstentry != 0)
+				{
 					scout->dir[CURR]->firstentry--;
+					scoutGetFileSize(scout->dir[CURR]->entries[scout->dir[CURR]->firstentry]);
+					utilsFree(scout->dir[CURR]->entries[scout->dir[CURR]->firstentry + scout->lines]->size);
+				}
+			}
 
 			scout->dir[CURR]->selentry--;
-
 			scoutLoadDir(CURR, RELOAD);
 			scoutLoadDir(NEXT, LOAD);
 		
@@ -929,11 +945,16 @@ int scoutMove(int direction)
 			buf = scout->dir[NEXT]; 
 
 			if (scout->dir[CURR]->selentry - scout->dir[CURR]->firstentry >= scout->botthrsh)
+			{
 				if (scout->dir[CURR]->entrycount - scout->dir[CURR]->selentry > scout->topthrsh + 1)
+				{
+					scoutGetFileSize(scout->dir[CURR]->entries[scout->dir[CURR]->firstentry + scout->lines]);
+					utilsFree(scout->dir[CURR]->entries[scout->dir[CURR]->firstentry]->size);
 					scout->dir[CURR]->firstentry++;
+				}
+			}
 
 			scout->dir[CURR]->selentry++;
-
 			scoutLoadDir(CURR, RELOAD);
 			scoutLoadDir(NEXT, LOAD);
 			
@@ -945,17 +966,12 @@ int scoutMove(int direction)
 
 			buf = scout->dir[NEXT];
 
-			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+			for (i = scout->dir[CURR]->firstentry, j = 0; i < scout->dir[CURR]->entrycount && j < scout->lines; i++, j++)
 				utilsFree(scout->dir[CURR]->entries[i]->size);
 
 			scout->dir[NEXT] = scout->dir[CURR];
 			scout->dir[CURR] = scout->dir[PREV];
-
 			chdir(scout->dir[CURR]->path);
-
-			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
-				scoutGetFileSize(scout->dir[CURR]->entries[i]);
-
 			scoutLoadDir(CURR, RELOAD);
 			scoutLoadDir(NEXT, RELOAD);
 			scoutLoadDir(PREV, LOAD);
@@ -974,17 +990,12 @@ int scoutMove(int direction)
 
 			buf = scout->dir[PREV];
 
-			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
+			for (i = scout->dir[CURR]->firstentry, j = 0; i < scout->dir[CURR]->entrycount && j < scout->lines; i++, j++)
 				utilsFree(scout->dir[CURR]->entries[i]->size);
 
 			scout->dir[PREV] = scout->dir[CURR];
 			scout->dir[CURR] = scout->dir[NEXT];
-
 			chdir(scout->dir[CURR]->path);
-
-			for (i = 0; i < scout->dir[CURR]->entrycount; i++)
-				scoutGetFileSize(scout->dir[CURR]->entries[i]);
-
 			scoutLoadDir(PREV, RELOAD);
 			scoutLoadDir(CURR, RELOAD);
 			scoutLoadDir(NEXT, LOAD);
@@ -1092,7 +1103,6 @@ int scoutPrintList(SDIR *dir, WINDOW *win)
 	if ((len = getmaxx(win)) <= 0)
 		return ERR;
 	string = utilsMalloc(sizeof(char *) * len);
-	scoutPrintRewindList(dir);
 
 	wclear(win);
 	for (i = 0, j = dir->firstentry; i < scout->lines && j < dir->entrycount; i++, j++)
@@ -1424,12 +1434,15 @@ int scoutSetup(char *path)
 
 void scoutSignalHandler(int sigval)
 {
-	int i;
+	int i, j;
 
 	scoutDestroyWindows();
 	scoutBuildWindows();
 	scoutPrintInfo();
 	curs_set(0);
+
+	for (i = scout->dir[CURR]->firstentry, j = 0; i < scout->dir[CURR]->entrycount && j < scout->lines; i++, j++)
+		utilsFree(scout->dir[CURR]->entries[i]->size);
 
 	for (i = 0; i < 3; i++)
 		if (scout->dir[i] != NULL)
