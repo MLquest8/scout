@@ -400,6 +400,7 @@ int scoutFindEntry(SDIR *dir, char *name)
 	dummy.name = name;
 	dummy.type = CP_DIRECTORY;
 
+	LOOP:
 	i = 0;
 	j = dir->entrycount;
 	l = (j - i) / 2;
@@ -410,11 +411,8 @@ int scoutFindEntry(SDIR *dir, char *name)
 		{
 			if (dummy.type != CP_DEFAULT)
 			{
-				i = 0;
-				j = dir->entrycount;
-				l = (j - i) / 2;
 				dummy.type = CP_DEFAULT;
-				continue;
+				goto LOOP;
 			}
 			else
 				return ERR;
