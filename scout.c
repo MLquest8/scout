@@ -82,7 +82,7 @@ static int scoutCacheDir(SDIR *);
 static int scoutCacheSearch(SDIR *);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
-static int scoutFindEntry(SDIR *, ENTR *);
+static int scoutFindEntry(SDIR *, char *);
 static int scoutFreeDir(SDIR **);
 static int scoutGetFileInfo(ENTR *);
 static int scoutGetFileSize(ENTR *);
@@ -390,17 +390,36 @@ int scoutCompareEntries(const void *A, const void *B)
 	return 1;
 }
 
-int scoutFindEntry(SDIR *dir, ENTR *entry)
+int scoutFindEntry(SDIR *dir, char *name)
 {
-	int loop = 0;
+	ENTR dummy;
+	ENTR *pdummy;
 	int i, j, k, l;
+
+	pdummy = &dummy;
+	dummy.name = name;
+	dummy.type = CP_DIRECTORY;
 
 	i = 0;
 	j = dir->entrycount;
 	l = (j - i) / 2;
-	
-	while ((k = scoutCompareEntries(&entry, &dir->entries[l])) != 0)
+
+	while ((k = scoutCompareEntries(&pdummy, &dir->entries[l])) != 0)
 	{
+		if (j - i == 1)
+		{
+			if (dummy.type != CP_DEFAULT)
+			{
+				i = 0;
+				j = dir->entrycount;
+				l = (j - i) / 2;
+				dummy.type = CP_DEFAULT;
+				continue;
+			}
+			else
+				return ERR;
+		}
+
 		if (k < 0)
 		{
 			j = l;
@@ -411,9 +430,6 @@ int scoutFindEntry(SDIR *dir, ENTR *entry)
 			i = l;
 			l = l + (j - i) / 2;
 		}
-
-		if (loop++ > dir->entrycount)
-			return ERR;
 	}
 
 	return l;
@@ -757,7 +773,7 @@ int scoutInitializeCurses(void)
 int scoutLoadDir(int dir, int mode)
 {
 	int i, j;
-	ENTR dummy;
+	char *temp;
 	ENTR *selentry;
 
 	switch (dir)
@@ -840,9 +856,9 @@ int scoutLoadDir(int dir, int mode)
 
 				if (scoutCacheSearch(scout->dir[PREV]) != OK)
 				{
-					dummy.type = CP_DIRECTORY;
-					dummy.name = strrchr(scout->dir[CURR]->path, '/') + 1;
-					scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], &dummy);
+					temp = strrchr(scout->dir[CURR]->path, '/') + 1;
+					if ((scout->dir[PREV]->selentry = scoutFindEntry(scout->dir[PREV], temp)) == ERR)
+						scout->dir[PREV]->selentry = 0;
 				}
 			}
 
@@ -1261,29 +1277,28 @@ int scoutReadDir(SDIR *dir)
 {
 	int i;
 	DIR *pdir;
-	ENTR dummy;
 	ENTR *entry;
-	int select = 0;
+	char *selentry;
+	int selflag = 0;
 	struct dirent *d;
 
 	if ((pdir = opendir(dir->path)) == NULL)
 	{
 		i = 0;
 		while (dir->path[++i] != '\0');
-		while (dir->path[--i] != '/');
+		while (dir->path[--i] != '/' && i >= 0);
 
-		dummy.type = CP_DEFAULT;
-		dummy.name = utilsMalloc(sizeof(char *) * strlen(&dir->path[i]));
-		strcpy(dummy.name, &dir->path[i + 1]);
+		selentry = utilsMalloc(sizeof(char *) * strlen(&dir->path[i]));
+		strcpy(selentry, &dir->path[i + 1]);
 		dir->path[i ? i : 1] = '\0';
 
 		if ((pdir = opendir(dir->path)) == NULL)
 		{
-			utilsFree(dummy.name);
+			utilsFree(selentry);
 			return ERR;
 		}
-		
-		select = !select;
+		else
+			selflag = 1;
 	}
 
 	chdir(dir->path);
@@ -1304,10 +1319,11 @@ int scoutReadDir(SDIR *dir)
 	if (dir->entries != NULL)
 		qsort(dir->entries, dir->entrycount, sizeof(ENTR *), scoutCompareEntries);
 
-	if (select)
+	if (selflag == 1)
 	{
-		dir->selentry = scoutFindEntry(dir, &dummy);
-		utilsFree(dummy.name);
+		if ((dir->selentry = scoutFindEntry(dir, selentry)) == ERR)
+			dir->selentry = 0;
+		utilsFree(selentry);
 	}
 
 	if (dir != scout->dir[CURR])
