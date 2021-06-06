@@ -53,29 +53,53 @@ unsigned int utilsCalcHash(char *str)
 
 int utilsNameCMP(char *name1, char *name2)
 {
-	int num1, num2;
-	char chr1, chr2;
-	
-	if (isdigit(*name1) && isdigit(*name2))
-	{
-		num1 = atof(name1);
-		num2 = atof(name2);
-
-		if (num1 < num2)
-			return -1;
-		else if (num1 > num2)
-			return 1;
-		else
-			return 0;
-	}
+	int chr1, chr2;
+	long num1, num2;
+	char *str1 = name1;
+	char *str2 = name2;
 
 	do
 	{
-		chr1 = tolower(*name1++);
-		chr2 = tolower(*name2++);
+		chr1 = tolower(*str1);
+		chr2 = tolower(*str2);
+
+		if (isdigit(chr1) && isdigit(chr2))
+		{
+			num1 = atol(str1);
+			num2 = atol(str2);
+
+			if (num1 < num2)
+				return -1;
+			else if (num1 > num2)
+				return +1;
+			else
+			{
+				while (isdigit(*str1++) && isdigit(*str2++));
+				chr1 = tolower(*str1);
+				chr2 = tolower(*str2);
+			}
+		}
 	
 		if (chr1 == chr2 && chr1 == '\0')
-			return 0;
+		{
+			str1 = name1;
+			str2 = name2;
+
+			do
+			{
+				chr1 = *str1++;
+				chr2 = *str2++;
+			
+				if (chr1 == chr2 && chr1 == '\0')
+					return 0;
+
+			} while (chr1 == chr2);
+			
+			return chr1 - chr2;
+		}
+
+		str1++;
+		str2++;
 
 	} while (chr1 == chr2);
 	
