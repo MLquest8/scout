@@ -65,12 +65,18 @@ typedef struct sdir
 	ENTR **entries;
 } SDIR;
 
+typedef struct clpb
+{
+	char *path;
+	char *action;
+	char **marked;
+	char *selentry;
+	int markedcount;
+} CLPB;
+
 typedef struct cach
 {
-	char *sel;
-	char *path;
-	char **marked;
-	int markedcount;
+	CLPB *content;
 	struct cach *next;
 } CACH;
 
@@ -80,6 +86,7 @@ static int scoutBuildWindows(void);
 static int scoutDestroyWindows(void);
 static int scoutCacheDir(SDIR *);
 static int scoutCacheSearch(SDIR *);
+static int scoutClipBoard(CLPB *, SDIR *, char *);
 static int scoutCompareEntries(const void *, const void *);
 static int scoutCommandLine(char *);
 static int scoutFindEntry(SDIR *, char *);
@@ -113,6 +120,7 @@ static struct mainstruct
 
 	SDIR *dir[3];
 	WINDOW *win[3];
+	CLPB *clipboard;
 	CACH *cache[HSIZE];
 } *scout;
 
@@ -201,15 +209,15 @@ int scoutCacheSearch(SDIR *dir)
 	
 	for (temp = scout->cache[hash]; temp != NULL; temp = temp->next)
 	{
-		if (strcmp(dir->path, temp->path) == 0)
+		if (strcmp(dir->path, temp->content->path) == 0)
 		{
-			if (temp->sel != NULL)
-				if ((dir->selentry = scoutFindEntry(dir, temp->sel)) == ERR)
+			if (temp->content->selentry != NULL)
+				if ((dir->selentry = scoutFindEntry(dir, temp->content->selentry)) == ERR)
 					dir->selentry = 0;
 			
-			if (temp->marked != NULL)
-				for (i = 0; i < temp->markedcount; i++)
-					if ((j = scoutFindEntry(dir, temp->marked[i])) != ERR)
+			if (temp->content->marked != NULL)
+				for (i = 0; i < temp->content->markedcount; i++)
+					if ((j = scoutFindEntry(dir, temp->content->marked[i])) != ERR)
 						dir->entries[j]->ismrk = 1;
 
 			return OK;
@@ -236,63 +244,95 @@ int scoutCacheDir(SDIR *dir)
 
 	while (temp != NULL)
 	{
-		if (strcmp(dir->path, temp->path) == OK)
-		{
-			if (temp->marked != NULL)
-				for (i = 0; i < temp->markedcount; i++)
-					utilsFree(temp->marked[i]);
-
-			utilsFree(temp->sel);
-			utilsFree(temp->marked);
-			temp->markedcount = 0;
+		if (strcmp(dir->path, temp->content->path) == OK)
 			break;
-		}
 		temp = temp->next;
 	}
 
 	if (temp == NULL)
 	{
 		temp = utilsCalloc(1, sizeof(CACH));
-		temp->path = utilsMalloc(sizeof(char *) * (strlen(dir->path) + 1));
-		strcpy(temp->path, dir->path);
+		temp->content = utilsCalloc(1, sizeof(CLPB));
 		temp->next = scout->cache[hash];
 		scout->cache[hash] = temp;
 	}
 
-	if (dir->selentry != 0)
-	{
-		temp->sel = utilsMalloc(sizeof(char *) * (strlen(dir->entries[dir->selentry]->name) + 1));
-		strcpy(temp->sel, dir->entries[dir->selentry]->name);
-	}
+	scoutClipBoard(temp->content, dir, NULL);
 
-	for (i = 0; i < dir->entrycount; i++)
-	{
-		if (dir->entries[i]->ismrk)
-		{
-			temp->marked = utilsRealloc(temp->marked, sizeof(char *) * (temp->markedcount + 1));
-			temp->marked[temp->markedcount] = utilsMalloc(sizeof(char *) * (strlen(dir->entries[i]->name) + 1));
-			strcpy(temp->marked[temp->markedcount++], dir->entries[i]->name);
-		}
-	}
-	
-	if (temp->sel == NULL && temp->marked == NULL)
+	/* Remove cache if there's nothing worth caching */
+	if (temp->content->selentry == NULL && temp->content->marked == NULL && temp->content->action == NULL)
 	{
 		temp = scout->cache[hash];
-		if (strcmp(dir->path, temp->path) == 0)
+		if (strcmp(dir->path, temp->content->path) == 0)
 			scout->cache[hash] = temp->next;
 		else
 		{
 			while (temp->next != NULL)
 			{
-				if (strcmp(dir->path, temp->next->path) == 0)
+				if (strcmp(dir->path, temp->next->content->path) == 0)
 					break;
 				temp = temp->next;
 			}
 			temp->next = temp->next->next;
 			temp = temp->next;
 		}
-		utilsFree(temp->path);
+		utilsFree(temp->content->action);
+		utilsFree(temp->content->path);
+		utilsFree(temp->content);
 		utilsFree(temp);
+	}
+
+	return OK;
+}
+
+int scoutClipBoard(CLPB *clipboard, SDIR *dir, char *action)
+{
+	int i;
+
+	if (clipboard->path != NULL)
+		utilsFree(clipboard->path);
+
+	if (clipboard->action != NULL)
+		utilsFree(clipboard->action);
+
+	if (clipboard->selentry != NULL)
+		utilsFree(clipboard->selentry);
+
+	if (clipboard->marked != NULL)
+	{
+		for (i = 0; i < clipboard->markedcount; i++)
+			utilsFree(clipboard->marked[i]);
+
+		utilsFree(clipboard->marked);
+		clipboard->markedcount = 0;
+	}
+
+	if (dir == NULL || dir->entries == NULL)
+		return ERR;
+
+	clipboard->path = utilsMalloc(sizeof(char *) * (strlen(dir->path) + 1));
+	strcpy(clipboard->path, dir->path);
+
+	if (action != NULL)
+	{
+		clipboard->action = utilsMalloc(sizeof(char *) * (strlen(action) + 1));
+		strcpy(clipboard->action, action);
+	}
+
+	if (dir->selentry != 0)
+	{
+		clipboard->selentry = utilsMalloc(sizeof(char *) * (strlen(dir->entries[dir->selentry]->name) + 1));
+		strcpy(clipboard->selentry, dir->entries[dir->selentry]->name);
+	}
+
+	for (i = 0; i < dir->entrycount; i++)
+	{
+		if (dir->entries[i]->ismrk)
+		{
+			clipboard->marked = utilsRealloc(clipboard->marked, sizeof(char *) * (clipboard->markedcount + 1));
+			clipboard->marked[clipboard->markedcount] = utilsMalloc(sizeof(char *) * (strlen(dir->entries[i]->name) + 1));
+			strcpy(clipboard->marked[clipboard->markedcount++], dir->entries[i]->name);
+		}
 	}
 
 	return OK;
@@ -1421,6 +1461,7 @@ int scoutSetup(char *path)
 		return ERR;
 
 	scout = utilsCalloc(1, sizeof(struct mainstruct));
+	scout->clipboard = utilsCalloc(1, sizeof(CLPB));
 	scout->dir[CURR] = utilsCalloc(1, sizeof(SDIR));
 	scout->dir[CURR]->path = utilsMalloc(sizeof(char *) * (strlen(truepath) + 1));
 	strcpy(scout->dir[CURR]->path, truepath);
@@ -1466,7 +1507,7 @@ void scoutSignalHandler(int sigval)
 
 void scoutSignalQuit(void)
 {
-	int i, j;
+	int i;
 	int exitcode;
 	CACH *temp, *buf;
 
@@ -1484,17 +1525,15 @@ void scoutSignalQuit(void)
 		while (temp != NULL)
 		{
 			buf = temp;
-			if (temp->marked != NULL)
-				for (j = 0; j < temp->markedcount; j++)
-					utilsFree(temp->marked[j]);
-
-			utilsFree(temp->marked);
-			utilsFree(temp->path);
-			utilsFree(temp->sel);
+			scoutClipBoard(temp->content, NULL, NULL);
+			utilsFree(temp->content);
 			temp = temp->next;
 			utilsFree(buf);
 		}
 	}
+
+	scoutClipBoard(scout->clipboard, NULL, NULL);
+	utilsFree(scout->clipboard);
 	utilsFree(scout->username);
 	utilsFree(scout->hostname);
 	utilsFree(scout);
