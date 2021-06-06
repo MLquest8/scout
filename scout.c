@@ -96,9 +96,9 @@ static int scoutPrintList(SDIR *, WINDOW *);
 static int scoutPrintRewindList(SDIR *);
 static int scoutPrintStringizeEntry(ENTR *, char *, int, int, int);
 static int scoutReadDir(SDIR *);
-static int scoutQuit(void);
 static int scoutSetup(char *);
 static void scoutSignalHandler(int);
+static void scoutSignalQuit(void);
 
 /* variables */
 static int running = 1;
@@ -182,10 +182,9 @@ int scoutDestroyWindows(void)
 	clear();
 	endwin();
 
-	if (!running)
-		return OK;
-	
-	refresh();
+	if (running)
+		refresh();
+
 	return OK;
 }
 
@@ -400,7 +399,6 @@ int scoutFindEntry(SDIR *dir, char *name)
 	dummy.name = name;
 	dummy.type = CP_DIRECTORY;
 
-	LOOP:
 	i = 0;
 	j = dir->entrycount;
 	l = (j - i) / 2;
@@ -411,8 +409,11 @@ int scoutFindEntry(SDIR *dir, char *name)
 		{
 			if (dummy.type != CP_DEFAULT)
 			{
+				i = 0;
+				j = dir->entrycount;
+				l = (j - i) / 2;
 				dummy.type = CP_DEFAULT;
-				goto LOOP;
+				continue;
 			}
 			else
 				return ERR;
@@ -1410,40 +1411,6 @@ int scoutRun(void)
 	return OK;
 }
 
-int scoutQuit(void)
-{
-	int i, j;
-	CACH *temp, *buf;
-
-	scoutFreeDir(&scout->dir[PREV]);
-	scoutFreeDir(&scout->dir[CURR]);
-	scoutFreeDir(&scout->dir[NEXT]);
-	scoutDestroyWindows();
-
-	for (i = 0; i < HSIZE; i++)
-	{
-		temp = scout->cache[i];
-		while (temp != NULL)
-		{
-			buf = temp;
-			if (temp->marked != NULL)
-				for (j = 0; j < temp->markedcount; j++)
-					utilsFree(temp->marked[j]);
-
-			utilsFree(temp->marked);
-			utilsFree(temp->path);
-			utilsFree(temp->sel);
-			temp = temp->next;
-			utilsFree(buf);
-		}
-	}
-	utilsFree(scout->username);
-	utilsFree(scout->hostname);
-	utilsFree(scout);
-
-	return OK;
-}
-
 int scoutSetup(char *path)
 {
 	char hostname[64];
@@ -1497,6 +1464,44 @@ void scoutSignalHandler(int sigval)
 	scoutLoadDir(PREV, RELOAD);
 }
 
+void scoutSignalQuit(void)
+{
+	int i, j;
+	int exitcode;
+	CACH *temp, *buf;
+
+	exitcode = running ? ERR : OK;
+	running  = 0;
+
+	scoutFreeDir(&scout->dir[PREV]);
+	scoutFreeDir(&scout->dir[CURR]);
+	scoutFreeDir(&scout->dir[NEXT]);
+	scoutDestroyWindows();
+
+	for (i = 0; i < HSIZE; i++)
+	{
+		temp = scout->cache[i];
+		while (temp != NULL)
+		{
+			buf = temp;
+			if (temp->marked != NULL)
+				for (j = 0; j < temp->markedcount; j++)
+					utilsFree(temp->marked[j]);
+
+			utilsFree(temp->marked);
+			utilsFree(temp->path);
+			utilsFree(temp->sel);
+			temp = temp->next;
+			utilsFree(buf);
+		}
+	}
+	utilsFree(scout->username);
+	utilsFree(scout->hostname);
+	utilsFree(scout);
+
+	exit(exitcode);
+}
+
 int main(int argc, char *argv[])
 {
 	if (argc == 2 && !strcmp(argv[1], "-v"))
@@ -1518,8 +1523,6 @@ int main(int argc, char *argv[])
 	}
 
 	signal(SIGWINCH, scoutSignalHandler);
-
+	atexit(scoutSignalQuit);
 	scoutRun();
-
-	exit(scoutQuit());
 }

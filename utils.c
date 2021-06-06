@@ -74,7 +74,7 @@ int utilsNameCMP(char *name1, char *name2)
 				return +1;
 			else
 			{
-				while (isdigit(*str1++) && isdigit(*str2++));
+				for (; isdigit(*str1) && isdigit(*str2); str1++, str2++);
 				chr1 = tolower(*str1);
 				chr2 = tolower(*str2);
 			}
