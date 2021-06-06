@@ -1,6 +1,11 @@
 #include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <ctype.h>
+#include <time.h>
 #include "utils.h"
+
+static FILE *logfile;
 
 void utilsFreeC(void **ptr)
 {
@@ -16,7 +21,7 @@ void *utilsMalloc(size_t size)
 	void *p;
 
 	if (!(p = malloc(size)))
-		exit(EXIT_FAILURE);
+		utilsLogCommit(FATAL, "Malloc failure: size(%ul)", size);
 
 	return p;
 }
@@ -26,7 +31,7 @@ void *utilsCalloc(size_t nmemb, size_t size)
 	void *p;
 
 	if (!(p = calloc(nmemb, size)))
-		exit(EXIT_FAILURE);
+		utilsLogCommit(FATAL, "Calloc failure: nmemb(%ul) size(%ul)", nmemb, size);
 
 	return p;
 }
@@ -36,7 +41,7 @@ void *utilsRealloc(void *oldptr, size_t size)
 	void *p;
 
 	if (!(p = realloc(oldptr, size)))
-		exit(EXIT_FAILURE);
+		utilsLogCommit(FATAL, "Realloc failure: oldptr(%p) size(%ul)", oldptr, size);
 
 	return p;
 }
@@ -104,4 +109,50 @@ int utilsNameCMP(char *name1, char *name2)
 	} while (chr1 == chr2);
 	
 	return chr1 - chr2;
+}
+
+void utilsLogBegin(const char *file)
+{
+	time_t curtime;
+
+	if ((logfile = fopen(file, "a")) == NULL)
+	{
+		fprintf(stderr, "Failed to open/create log file: %s\n", file);
+		exit(EXIT_FAILURE);
+	}
+
+	time(&curtime);
+	fprintf(logfile, "Log begin: %s", ctime(&curtime));
+	fprintf(logfile, "===================================\n");
+
+	fflush(logfile);
+}
+
+void utilsLogCommit(int fatal, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(logfile, fmt, ap);
+	va_end(ap);
+
+	if (fatal)
+	{
+		fprintf(logfile, " ***FATAL ERROR***\n");
+		exit(EXIT_FAILURE);
+	}
+
+	fprintf(logfile, "\n");
+	fflush(logfile);
+}
+
+void utilsLogEnd(void)
+{
+	time_t curtime;
+  	
+	time(&curtime);
+	fprintf(logfile, "=================================\n");
+	fprintf(logfile, "Log end: %s\n", ctime(&curtime));
+
+	fclose(logfile);
 }

@@ -1457,6 +1457,9 @@ int scoutSetup(char *path)
 	struct passwd *pw;
 	char truepath[PATH_MAX];
 
+	if (enablelog)
+		utilsLogBegin(logfile);
+
 	if (realpath(path, truepath) == NULL)
 		return ERR;
 
@@ -1512,12 +1515,13 @@ void scoutSignalQuit(void)
 	CACH *temp, *buf;
 
 	exitcode = running ? ERR : OK;
-	running  = 0;
 
+	running  = 0;
+	utilsLogEnd();
+	scoutDestroyWindows();
 	scoutFreeDir(&scout->dir[PREV]);
 	scoutFreeDir(&scout->dir[CURR]);
 	scoutFreeDir(&scout->dir[NEXT]);
-	scoutDestroyWindows();
 
 	for (i = 0; i < HSIZE; i++)
 	{

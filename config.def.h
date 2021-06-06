@@ -3,6 +3,9 @@ static const char *extAudio[]   = {"mp3", "wav", "ogg"};
 static const char *extImage[]   = {"jpg", "gif", "png"};
 static const char *extArchive[] = {"zip", "rar", "7z"};
 
+static const int enablelog  = 1;
+static const char *logfile  = "-log";
+
 static const char *errorDirEmpty  = "EMPTY";
 static const char *errorNoAccess  = "ACCESS DENIED";
 static const char *errorSymBroken = "UNRESOLVABLE SYMLINK";
